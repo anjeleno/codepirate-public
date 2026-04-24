@@ -62,7 +62,7 @@ You can drag it to any panel in VS Code — the layout is yours to keep.
 
 At the top of the sidebar, two controls:
 
-- **Provider dropdown** — switch between all configured providers
+- **Provider dropdown** — select your active provider. (Multi-provider hub — configure multiple providers simultaneously and switch on demand — is a Pro feature.)
 - **Model search** — type to filter. For OpenRouter, this searches all 200+ available models in real time, showing model name, ID, price per 1k tokens, and context length. For other providers, a curated list is shown. Start typing a name, click to select.
 
 The badge to the right shows **Free** or **⚡ Pro** (your license tier).
@@ -226,5 +226,7 @@ Phone-home is **license validation only**. The validation request contains your 
 
 ## License
 
-MIT — [codepirate.cc](https://codepirate.cc)
+Code Pirate Source Available License v1.0 — source is publicly auditable but may not be redistributed, forked, or used to create derivative works. See [LICENSE](LICENSE) for full terms.
+
+[codepirate.cc](https://codepirate.cc)
 
