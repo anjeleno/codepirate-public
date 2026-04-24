@@ -1,0 +1,10 @@
+# Private — never committed to the public repo
+docs/
+releases/
+dist/
+node_modules/
+*.vsix
+*.sh
+.env
+.DS_Store
+

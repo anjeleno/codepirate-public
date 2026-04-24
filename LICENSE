@@ -1,0 +1,86 @@
+Code Pirate Source Available License
+Version 1.0, April 2026
+
+Copyright (c) 2026 CodePirate.cc. All rights reserved.
+
+TERMS AND CONDITIONS
+
+1. DEFINITIONS
+
+   "Software" means the Code Pirate VS Code extension, including all source
+   code, compiled artifacts, documentation, and associated files made available
+   in this repository.
+
+   "Licensor" means CodePirate.cc and its authorized representatives.
+
+   "You" means the individual or legal entity exercising rights under this
+   License.
+
+2. SOURCE VISIBILITY
+
+   The source code of this Software is made publicly visible for the purposes
+   of inspection, security auditing, and transparency. Visibility does not
+   constitute an open-source license.
+
+3. PERMITTED USES
+
+   Subject to the terms of this License, You are permitted to:
+
+   a. View and read the source code for personal review and security auditing.
+   b. Install and run the Software on your own devices for personal or
+      internal business use.
+   c. Submit bug reports, feature requests, and pull requests to the official
+      repository.
+
+4. PROHIBITED USES
+
+   You may NOT, without explicit prior written permission from the Licensor:
+
+   a. Copy, reproduce, or redistribute the Software or any portion of it.
+   b. Modify, adapt, translate, or create derivative works based on the
+      Software.
+   c. Sublicense, sell, rent, lease, or otherwise transfer rights to the
+      Software to any third party.
+   d. Use the Software or any portion of it to build a competing product
+      or service.
+   e. Remove or alter any copyright, trademark, or attribution notices.
+
+5. FUTURE LICENSE TRANSITION
+
+   The Licensor reserves the right to re-license this Software under the
+   GNU Affero General Public License v3.0 (AGPL-3.0) or another open-source
+   license at a future date. Any such transition will be announced publicly
+   and will apply prospectively. Existing copies distributed under this
+   License remain subject to its terms unless explicitly superseded.
+
+6. CONTRIBUTIONS
+
+   By submitting a contribution (pull request, patch, or similar) to this
+   repository, You grant the Licensor a perpetual, irrevocable, worldwide,
+   royalty-free license to use, modify, and redistribute your contribution
+   as part of the Software under any license the Licensor chooses, including
+   this License and any future license transition described in Section 5.
+
+7. DISCLAIMER OF WARRANTIES
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT. THE LICENSOR DOES
+   NOT WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE OR UNINTERRUPTED.
+
+8. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL,
+   SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING LOSS OF DATA,
+   PROFITS, OR BUSINESS INTERRUPTION) ARISING FROM THE USE OF OR INABILITY
+   TO USE THE SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+9. GOVERNING LAW
+
+   This License shall be governed by and construed in accordance with
+   applicable law, without regard to conflict-of-law principles.
+
+10. CONTACT
+
+    For licensing inquiries, commercial use requests, or permissions beyond
+    the scope of this License, contact: legal@codepirate.cc

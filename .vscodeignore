@@ -1,0 +1,26 @@
+# Source files — not needed in the packaged extension
+src/**
+webview/src/**
+webview/index.html
+webview/vite.config.ts
+webview/tsconfig.json
+
+# Build tooling
+vite.config.ts
+tsconfig.json
+.gitignore
+.gitattributes
+
+# Dev artifacts
+node_modules/**
+*.map
+
+# Docs & scripts
+docs/**
+scripts/**
+*.sh
+sync-public.sh
+
+# Test / CI
+.github/**
+coverage/**
