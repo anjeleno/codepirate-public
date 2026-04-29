@@ -3,7 +3,7 @@ import { SidebarProvider } from './sidebar'
 import { CompletionProvider } from './completions'
 import { VaultManager } from './vault'
 import { LicenseManager } from './license/licenseManager'
-import { runInlineChat, explainTerminalError, generateCommitMessage } from './inlineChat'
+import { runInlineChat, acceptInlineEdit, discardInlineEdit, explainTerminalError, generateCommitMessage } from './inlineChat'
 import { runProjectRulesWizard, activate as activateRules } from './rules'
 import { isLocal } from './router'
 import { runOnboardingIfNeeded, resetOnboarding } from './onboarding'
@@ -67,6 +67,9 @@ export function activate(context: vscode.ExtensionContext): void {
   // ─── Commands ────────────────────────────────────────────────────────────
 
   context.subscriptions.push(
+    vscode.commands.registerCommand('codePirate.acceptInlineEdit', () => acceptInlineEdit()),
+    vscode.commands.registerCommand('codePirate.discardInlineEdit', () => discardInlineEdit()),
+
     vscode.commands.registerCommand('codePirate.inlineChat', () =>
       runInlineChat(async () => {
         const apiKey = await secrets.get('codePirate.apiKey')

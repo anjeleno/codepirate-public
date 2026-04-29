@@ -2,14 +2,18 @@
   "name": "code-pirate",
   "displayName": "Code Pirate",
   "description": "A 1:1 GitHub Copilot replacement built for developers who are done being held hostage and gaslit by SaaS bait-and-switches.",
-  "version": "0.1.11",
+  "version": "0.1.14",
   "publisher": "codepirate",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anjeleno/code-pirate"
+    "url": "https://github.com/anjeleno/codepirate-public"
   },
+  "bugs": {
+    "url": "https://github.com/anjeleno/codepirate-public/issues"
+  },
+  "homepage": "https://codepirate.cc",
   "engines": {
     "vscode": "^1.90.0"
   },
@@ -84,6 +88,14 @@
       {
         "command": "codePirate.runDiagnostics",
         "title": "Code Pirate: Run Diagnostics"
+      },
+      {
+        "command": "codePirate.acceptInlineEdit",
+        "title": "Code Pirate: Accept Inline Edit"
+      },
+      {
+        "command": "codePirate.discardInlineEdit",
+        "title": "Code Pirate: Discard Inline Edit"
       }
     ],
     "keybindings": [
@@ -92,6 +104,16 @@
         "key": "ctrl+i",
         "mac": "cmd+i",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "codePirate.acceptInlineEdit",
+        "key": "tab",
+        "when": "codePirate.pendingInlineEdit && editorTextFocus"
+      },
+      {
+        "command": "codePirate.discardInlineEdit",
+        "key": "escape",
+        "when": "codePirate.pendingInlineEdit && editorTextFocus"
       }
     ],
     "configuration": {

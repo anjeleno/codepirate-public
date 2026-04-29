@@ -2,6 +2,74 @@ import * as vscode from 'vscode'
 import { routeRequest, parseStream } from './router'
 import type { RouterConfig } from './types'
 
+// ─── Inline edit decoration types (module-level, reused across invocations) ───
+
+const _bodyDecoration = vscode.window.createTextEditorDecorationType({
+  backgroundColor: new vscode.ThemeColor('diffEditor.insertedLineBackground'),
+  isWholeLine: true,
+})
+
+const _hintDecoration = vscode.window.createTextEditorDecorationType({
+  after: {
+    contentText: '  ✓ Tab to accept · Esc to discard',
+    color: new vscode.ThemeColor('editorGhostText.foreground'),
+    margin: '0 0 0 1em',
+    fontStyle: 'italic',
+  },
+})
+
+// ─── Pending inline edit state ────────────────────────────────────────────────
+
+interface PendingEdit {
+  editor: vscode.TextEditor
+  insertedRange: vscode.Range
+  originalText: string
+}
+
+let _pending: PendingEdit | null = null
+
+function clearDecorations(editor: vscode.TextEditor): void {
+  editor.setDecorations(_bodyDecoration, [])
+  editor.setDecorations(_hintDecoration, [])
+}
+
+async function setPendingContext(active: boolean): Promise<void> {
+  await vscode.commands.executeCommand('setContext', 'codePirate.pendingInlineEdit', active)
+}
+
+// ─── Accept / Discard ─────────────────────────────────────────────────────────
+
+export async function acceptInlineEdit(): Promise<void> {
+  if (!_pending) return
+  clearDecorations(_pending.editor)
+  _pending = null
+  await setPendingContext(false)
+}
+
+export async function discardInlineEdit(): Promise<void> {
+  if (!_pending) return
+  const { editor, insertedRange, originalText } = _pending
+  clearDecorations(editor)
+  _pending = null
+  await setPendingContext(false)
+  if (!editor.document.isClosed) {
+    await editor.edit(e => e.replace(insertedRange, originalText))
+  }
+}
+
+// ─── Position math ────────────────────────────────────────────────────────────
+
+function endPositionOf(start: vscode.Position, text: string): vscode.Position {
+  const lines = text.split('\n')
+  if (lines.length === 1) {
+    return new vscode.Position(start.line, start.character + text.length)
+  }
+  return new vscode.Position(
+    start.line + lines.length - 1,
+    lines[lines.length - 1].length,
+  )
+}
+
 // ─── Ctrl+I inline chat ───────────────────────────────────────────────────────
 
 export async function runInlineChat(
@@ -12,6 +80,9 @@ export async function runInlineChat(
     vscode.window.showErrorMessage('Code Pirate: Open a file to use inline chat.')
     return
   }
+
+  // Auto-discard any existing pending edit before starting a new one
+  if (_pending) await discardInlineEdit()
 
   const config = await getConfig()
   if (!config) {
@@ -38,11 +109,10 @@ export async function runInlineChat(
 
   const abortController = new AbortController()
 
-  // Build a targeted system prompt
   const systemPrompt =
     'You are a precise code editor. The user will provide a code selection and an instruction. ' +
     'Respond with ONLY the replacement code — no explanations, no preamble, no trailing commentary. ' +
-    'Preserve the original indentation level. Output a complete, correct code block.'
+    'Preserve the original indentation level. Output code only — no markdown fences.'
 
   const userContent = hasSelection
     ? `Language: ${editor.document.languageId}\n\nSelected code:\n\`\`\`\n${selectedText}\n\`\`\`\n\nInstruction: ${instruction}`
@@ -76,24 +146,39 @@ export async function runInlineChat(
         result = result.trim()
         if (!result) return
 
-        // Strip outer code fences if present
+        // Strip code fences if model added them despite the instruction
         const fenceRe = /^```[\w]*\n?([\s\S]*?)```\s*$/
         const fenceMatch = fenceRe.exec(result)
         const cleanResult = fenceMatch ? fenceMatch[1].trimEnd() : result
 
-        if (hasSelection) {
-          // Replace the selection with the AI result
-          await editor.edit((editBuilder) => {
-            editBuilder.replace(selection, cleanResult)
-          })
-        } else {
-          // No selection — show result in a new untitled document
+        if (!hasSelection) {
+          // No selection — show beside (unchanged behavior)
           const doc = await vscode.workspace.openTextDocument({
             content: cleanResult,
             language: editor.document.languageId,
           })
           await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside)
+          return
         }
+
+        // Apply the edit — single undo entry so Ctrl+Z reverts everything in one step
+        const ok = await editor.edit(e => e.replace(selection, cleanResult))
+        if (!ok) return
+
+        // Calculate the range now occupied by the inserted text
+        const insertedEnd = endPositionOf(selection.start, cleanResult)
+        const insertedRange = new vscode.Range(selection.start, insertedEnd)
+
+        // Green highlight across all inserted lines
+        editor.setDecorations(_bodyDecoration, [insertedRange])
+        // "Tab · Esc" hint anchored to the last line of the insert
+        editor.setDecorations(_hintDecoration, [new vscode.Range(insertedEnd, insertedEnd)])
+        editor.revealRange(insertedRange, vscode.TextEditorRevealType.InCenterIfOutsideViewport)
+
+        // Store pending state — activates the Tab/Esc keybindings
+        _pending = { editor, insertedRange, originalText: selectedText }
+        await setPendingContext(true)
+
       } catch (err) {
         if (err instanceof Error && err.name !== 'AbortError') {
           vscode.window.showErrorMessage(`Code Pirate: ${err.message}`)
