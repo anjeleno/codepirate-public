@@ -238,6 +238,7 @@ export async function* parseStream(
   const isAnthropic = provider === 'anthropic-direct'
   let buffer = ''
   const usage: UsageInfo = { inputTokens: 0, outputTokens: 0 }
+  let reportedModel: string | null = null
 
   try {
     while (true) {
@@ -255,7 +256,13 @@ export async function* parseStream(
         if (isAnthropic) {
           yield* parseAnthropicLine(trimmed, usage)
         } else {
-          yield* parseOpenAILine(trimmed, usage)
+          for (const event of parseOpenAILine(trimmed, usage)) {
+            // Capture the first model ID reported by the provider (e.g. OpenRouter)
+            if (event.type === 'model' && reportedModel === null) {
+              reportedModel = event.id
+            }
+            yield event
+          }
         }
       }
     }
@@ -273,6 +280,10 @@ function* parseOpenAILine(line: string, usage: UsageInfo): Generator<StreamYield
 
   try {
     const parsed = JSON.parse(data)
+    // Yield the model ID from the first chunk so callers can verify routing
+    if (typeof parsed?.model === 'string' && parsed.model.length > 0) {
+      yield { type: 'model', id: parsed.model }
+    }
     const delta = parsed?.choices?.[0]?.delta?.content
     if (typeof delta === 'string' && delta.length > 0) {
       yield { type: 'text', chunk: delta }

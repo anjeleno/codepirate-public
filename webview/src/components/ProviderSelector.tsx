@@ -48,6 +48,9 @@ export function ProviderSelector({
   const [query, setQuery] = useState(model)
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  // Track whether a dropdown item was just selected so handleBlur
+  // doesn't overwrite the correct ID with a stale search term.
+  const justSelectedRef = useRef(false)
 
   // Sync external model changes into local query (e.g. after provider switch)
   useEffect(() => { setQuery(model) }, [model])
@@ -78,12 +81,20 @@ export function ProviderSelector({
   ).slice(0, 50) // cap at 50 to keep dropdown snappy
 
   const handleSelect = (id: string) => {
+    justSelectedRef.current = true
     setQuery(id)
     onModelChange(id)
     setOpen(false)
   }
 
   const handleBlur = () => {
+    if (justSelectedRef.current) {
+      // A dropdown item was clicked — handleSelect already called onModelChange
+      // with the correct ID. Don't overwrite it with the stale query value.
+      justSelectedRef.current = false
+      setTimeout(() => setOpen(false), 150)
+      return
+    }
     // Commit whatever is typed as the model id
     onModelChange(query)
     setTimeout(() => setOpen(false), 150) // delay so click on item fires first

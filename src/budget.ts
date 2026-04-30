@@ -18,6 +18,11 @@ const MODEL_PRICING: Record<string, ModelPricing> = {
   'openai/gpt-4o-mini': { inputPer1M: 0.15, outputPer1M: 0.6, isAnthropic: false },
   'meta-llama/llama-3.3-70b-instruct': { inputPer1M: 0.5, outputPer1M: 1.5, isAnthropic: false },
   'google/gemini-pro-1.5': { inputPer1M: 1.25, outputPer1M: 5, isAnthropic: false },
+  // DeepSeek models
+  'deepseek/deepseek-v4-pro': { inputPer1M: 0.27, outputPer1M: 1.1, isAnthropic: false },
+  'deepseek/deepseek-chat-v3-0324': { inputPer1M: 0.27, outputPer1M: 1.1, isAnthropic: false },
+  'deepseek/deepseek-chat': { inputPer1M: 0.27, outputPer1M: 1.1, isAnthropic: false },
+  'deepseek/deepseek-r1': { inputPer1M: 0.55, outputPer1M: 2.19, isAnthropic: false },
   // Anthropic Direct model IDs
   'claude-opus-4-5': { inputPer1M: 15, outputPer1M: 75, isAnthropic: true },
   'claude-sonnet-4-5': { inputPer1M: 3, outputPer1M: 15, isAnthropic: true },

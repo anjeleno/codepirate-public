@@ -277,6 +277,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       return
     }
 
+    dbg(`handleChat: provider=${config.provider} model=${config.model} hasKey=${!!config.apiKey}`)
+
     this.streaming = true
     this.abortController = new AbortController()
     this.conversationHistory.push({ role: 'user', content: userMessage })
@@ -297,6 +299,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       })
 
       const response = await routeRequest(config, options)
+      dbg(`OR response: status=${response.status} x-model=${response.headers.get('x-model') ?? 'n/a'} x-request-id=${response.headers.get('x-request-id') ?? 'n/a'}`)
 
       for await (const event of parseStream(response, config.provider)) {
         if (event.type === 'text') {
@@ -305,6 +308,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         } else if (event.type === 'thinking') {
           fullThinking += event.chunk
           this.post({ type: 'thinkingChunk', text: event.chunk })
+        } else if (event.type === 'model') {
+          dbg(`OR actual model used: ${event.id}`)
         } else if (event.type === 'usage' && !isLocal(config.provider)) {
           const sessionCost = this.ledger.record(event.usage, model)
           this.post({ type: 'ledgerUpdate', ledger: sessionCost })

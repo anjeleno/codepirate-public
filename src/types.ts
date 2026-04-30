@@ -40,6 +40,7 @@ export type StreamYield =
   | { type: 'text'; chunk: string }
   | { type: 'thinking'; chunk: string }
   | { type: 'usage'; usage: UsageInfo }
+  | { type: 'model'; id: string }
 
 export interface UsageInfo {
   inputTokens: number
