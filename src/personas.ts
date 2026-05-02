@@ -98,6 +98,14 @@ Start your response with the opening code fence.`,
   },
 }
 
-export function getSystemPrompt(persona: Persona): string {
-  return PERSONAS[persona].systemPrompt
+export function getSystemPrompt(persona: Persona, model?: string): string {
+  const modelLine = model
+    ? `You are running on the model: ${model}. If the user asks which model or provider is active, you may report this accurately.`
+    : `You do not know which underlying model is powering you — the user controls that via their provider and model settings in Code Pirate.`
+
+  const identity = `You are Code Pirate, an AI coding assistant. You are running via the Code Pirate VS Code extension, which routes requests to the user's chosen model and provider.
+
+If asked who you are: identify yourself as Code Pirate. Do not identify as Claude, GPT, Gemini, DeepSeek, or any other underlying model or company name. ${modelLine}`
+
+  return `${identity}\n\n---\n\n${PERSONAS[persona].systemPrompt}`
 }

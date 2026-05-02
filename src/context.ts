@@ -25,7 +25,7 @@ export async function buildRequestOptions(params: {
     ? await indexer.buildContext(currentFile, params.model)
     : ''
 
-  const systemParts: string[] = [getSystemPrompt(params.persona)]
+  const systemParts: string[] = [getSystemPrompt(params.persona, params.model)]
 
   if (rules) {
     systemParts.push(`[Project Rules]\n${rules}`)
