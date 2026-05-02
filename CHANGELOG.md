@@ -2,13 +2,32 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: 2e40bd7eaa1fe1437817c29eb7c78cea2317e96e -->
+<!-- LAST_PACKAGED_COMMIT: 385ac2fbaeb85088f680d785f956587639210bb4 -->
 <!-- CHANGES -->
+
+## [0.1.23] - 2026-05-02
+
+### Fixed
+- Changelog step
+
+### Changed
+- Group by feat/fix prefix, strip hashes, skip when no new commits; fix CHANGELOG.md 0.1.22 entry
+
+---
 
 ## [0.1.22] - 2026-05-02
 
-### Changes
-- 2e40bd7 feat(ledger): replace OR total spend with orange Next request estimate; feat: CHANGELOG.md v0.1.0-v0.1.21; feat(package.sh): auto-prepend changelog section on version bump
+### Added
+- Captain's Ledger: new "Next request" row — bold orange, shows live pre-send cost estimate that updates as you type
+- CHANGELOG.md — full history from v0.1.0 through v0.1.21 sourced from git log and handoff docs
+- package.sh step 1b: auto-generates a new changelog section on every version bump; groups commits by type into Added/Fixed/Changed; skips if no new commits
+
+### Fixed
+- sync-public.sh: CHANGELOG.md was missing from SYNC_ITEMS — it now syncs to the public repo on every `./sync-public.sh` run
+
+### Changed
+- Captain's Ledger: removed "OR total spend" row (negative balance — meaningless and confusing for pay-as-you-go OpenRouter accounts)
+- Cost estimate below send button: color changed from grey to orange; opacity raised for visibility
 
 ---
 
