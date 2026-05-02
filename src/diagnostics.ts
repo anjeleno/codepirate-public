@@ -95,7 +95,7 @@ export async function runDiagnostics(
   log(`✓  Active provider`)
   log(`   ${provider}`)
 
-  const model = config.get<string>('model') ?? 'anthropic/claude-opus-4'
+  const model = config.get<string>('model') ?? 'deepseek/deepseek-v4-pro'
   log(`✓  Active model`)
   log(`   ${model}`)
 

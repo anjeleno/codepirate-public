@@ -51,17 +51,45 @@ export function activate(context: vscode.ExtensionContext): void {
     if (!apiKey && !isLocal(provider)) return null
     return {
       provider,
-      model: config.get<string>('model') ?? 'anthropic/claude-opus-4',
+      model: config.get<string>('model') ?? 'deepseek/deepseek-v4-pro',
       apiKey: apiKey ?? '',
       apiEndpoint: config.get<string>('apiEndpoint'),
     }
   })
 
+  // Only register inline completions if explicitly enabled — each keystroke
+  // fires a real API request and can drain credits silently.
+  const registerCompletions = () => {
+    const enabled = vscode.workspace
+      .getConfiguration('codePirate')
+      .get<boolean>('enableInlineCompletions', false)
+    if (enabled) {
+      context.subscriptions.push(
+        vscode.languages.registerInlineCompletionItemProvider(
+          { pattern: '**' },
+          completionProvider,
+        ),
+      )
+    }
+  }
+  registerCompletions()
+
+  // Re-evaluate when the setting changes (no restart required)
   context.subscriptions.push(
-    vscode.languages.registerInlineCompletionItemProvider(
-      { pattern: '**' },
-      completionProvider,
-    ),
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('codePirate.enableInlineCompletions')) {
+        vscode.window
+          .showInformationMessage(
+            'Inline completions setting changed. Reload window to apply.',
+            'Reload',
+          )
+          .then(choice => {
+            if (choice === 'Reload') {
+              void vscode.commands.executeCommand('workbench.action.reloadWindow')
+            }
+          })
+      }
+    }),
   )
 
   // ─── Commands ────────────────────────────────────────────────────────────
@@ -78,7 +106,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!apiKey && !isLocal(provider)) return null
         return {
           provider,
-          model: config.get<string>('model') ?? 'anthropic/claude-opus-4',
+          model: config.get<string>('model') ?? 'deepseek/deepseek-v4-pro',
           apiKey: apiKey ?? '',
           apiEndpoint: config.get<string>('apiEndpoint'),
         }
@@ -92,7 +120,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!apiKey) return null
         return {
           provider: (config.get<string>('provider') ?? 'openrouter') as Provider,
-          model: config.get<string>('model') ?? 'anthropic/claude-opus-4',
+          model: config.get<string>('model') ?? 'deepseek/deepseek-v4-pro',
           apiKey,
         }
       }),
@@ -105,7 +133,7 @@ export function activate(context: vscode.ExtensionContext): void {
         if (!apiKey) return null
         return {
           provider: (config.get<string>('provider') ?? 'openrouter') as Provider,
-          model: config.get<string>('model') ?? 'anthropic/claude-opus-4',
+          model: config.get<string>('model') ?? 'deepseek/deepseek-v4-pro',
           apiKey,
         }
       }),

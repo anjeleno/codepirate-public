@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import type { Provider, ProviderInfo, ModelInfo } from '../types'
 
 // Static model lists for non-OpenRouter providers
-const STATIC_MODELS: Partial<Record<Provider, ModelInfo[]>> = {
+export const STATIC_MODELS: Partial<Record<Provider, ModelInfo[]>> = {
   'anthropic-direct': [
     { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', contextLength: 200000, promptCostPer1k: 0.015, completionCostPer1k: 0.075, provider: 'anthropic' },
     { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', contextLength: 200000, promptCostPer1k: 0.003, completionCostPer1k: 0.015, provider: 'anthropic' },

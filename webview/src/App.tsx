@@ -15,7 +15,7 @@ import type {
 import { MessageList } from './components/MessageList'
 import { PersonaSwitcher } from './components/PersonaSwitcher'
 import { ThinkingDial } from './components/ThinkingDial'
-import { ProviderSelector } from './components/ProviderSelector'
+import { ProviderSelector, STATIC_MODELS } from './components/ProviderSelector'
 import { Ledger } from './components/Ledger'
 import { VaultPanel } from './components/VaultPanel'
 // ─── Chat session history ──────────────────────────────────────────────────────────────
@@ -28,6 +28,22 @@ interface SavedSession {
 }
 
 const SESSIONS_KEY = 'codePirate.sessions'
+
+// ─── Slash commands ───────────────────────────────────────────────────────────
+
+const SLASH_COMMANDS = [
+  { id: '/fix',     desc: 'Fix issues in the active file or selection' },
+  { id: '/explain', desc: 'Explain what the active file does' },
+  { id: '/tests',   desc: 'Write unit tests for the active file' },
+  { id: '/doc',     desc: 'Add documentation to the active file' },
+]
+
+const SLASH_PROMPTS: Record<string, string> = {
+  '/fix':     'Review and fix any bugs, errors, or issues in the following code.',
+  '/explain': 'Explain what the following code does, how it works, and any important patterns or edge cases.',
+  '/tests':   'Write comprehensive unit tests for the following code. Cover happy paths, edge cases, and error cases. Use the appropriate test framework for this project.',
+  '/doc':     'Add clear, comprehensive documentation comments to the following code. Use the appropriate comment format for the language.',
+}
 // ─── App state ────────────────────────────────────────────────────────────────
 
 interface DiffState {
@@ -59,6 +75,8 @@ interface AppState {
   creditBalance: number | null
   savedSessions: SavedSession[]
   workspaceTokens: number | null // null = not yet estimated
+  activeFileName: string | null
+  attachedFiles: Array<{ path: string; name: string }>
 }
 
 const emptyLedger: SessionCost = {
@@ -80,7 +98,7 @@ const initialState: AppState = {
   thinkingBudget: 'off',
   includeWorkspace: false,
   provider: 'openrouter',
-  model: 'anthropic/claude-opus-4',
+  model: 'deepseek/deepseek-v4-pro',
   hasApiKey: false,
   tier: 'free',
   ledger: emptyLedger,
@@ -93,6 +111,8 @@ const initialState: AppState = {
   creditBalance: null,
   savedSessions: [],
   workspaceTokens: null,
+  activeFileName: null,
+  attachedFiles: [],
 }
 
 type Action =
@@ -124,6 +144,9 @@ type Action =
   | { type: 'DELETE_SESSION'; id: string }
   | { type: 'LOAD_SESSIONS'; sessions: SavedSession[] }
   | { type: 'WORKSPACE_TOKENS'; tokens: number | null }
+  | { type: 'ACTIVE_FILE_CHANGED'; name: string | null }
+  | { type: 'FILE_PICKED'; path: string; name: string }
+  | { type: 'REMOVE_ATTACHED_FILE'; path: string }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -221,7 +244,7 @@ function reducer(state: AppState, action: Action): AppState {
         content: state.input.trim(),
         timestamp: Date.now(),
       }
-      return { ...state, messages: [...state.messages, userMsg], input: '' }
+      return { ...state, messages: [...state.messages, userMsg], input: '', attachedFiles: [] }
     }
 
     case 'CLEAR_ERROR':
@@ -267,6 +290,17 @@ function reducer(state: AppState, action: Action): AppState {
     case 'WORKSPACE_TOKENS':
       return { ...state, workspaceTokens: action.tokens }
 
+    case 'ACTIVE_FILE_CHANGED':
+      return { ...state, activeFileName: action.name }
+
+    case 'FILE_PICKED': {
+      if (state.attachedFiles.some(f => f.path === action.path)) return state
+      return { ...state, attachedFiles: [...state.attachedFiles, { path: action.path, name: action.name }] }
+    }
+
+    case 'REMOVE_ATTACHED_FILE':
+      return { ...state, attachedFiles: state.attachedFiles.filter(f => f.path !== action.path) }
+
     default:
       return state
   }
@@ -280,7 +314,16 @@ export default function App() {
   const inputRef = useRef<HTMLInputElement>(null)
   const [controlsOpen, setControlsOpen] = useState(false)
   const [inputHeight, setInputHeight] = useState(60)
+  const [slashIndex, setSlashIndex] = useState(0)
   const resizeDragRef = useRef<{ startY: number; startH: number } | null>(null)
+
+  const filteredSlashCommands = useMemo(() => {
+    if (!state.input.startsWith('/')) return []
+    const query = state.input.split(' ')[0].toLowerCase()
+    return SLASH_COMMANDS.filter(c => c.id.startsWith(query))
+  }, [state.input])
+
+  const slashMenuOpen = filteredSlashCommands.length > 0 && !state.streaming
 
   const handleResizeDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -361,6 +404,12 @@ export default function App() {
         case 'workspaceTokens':
           dispatch({ type: 'WORKSPACE_TOKENS', tokens: msg.tokens })
           break
+        case 'filePicked':
+          dispatch({ type: 'FILE_PICKED', path: msg.path, name: msg.name })
+          break
+        case 'activeFileChanged':
+          dispatch({ type: 'ACTIVE_FILE_CHANGED', name: msg.name })
+          break
         case 'error':
           dispatch({ type: 'STREAM_ERROR', error: msg.message })
           break
@@ -383,26 +432,64 @@ export default function App() {
   }, [])
 
   const sendMessage = useCallback(() => {
-    const text = state.input.trim()
-    if (!text || state.streaming) return
+    const rawText = state.input.trim()
+    if (!rawText || state.streaming) return
+
+    // Expand slash commands — chat display shows /fix, AI receives the full instruction
+    let messageToSend = rawText
+    let includeActiveFile = false
+    const slashMatch = /^(\/\w+)([ \t][\s\S]*)?$/.exec(rawText)
+    if (slashMatch) {
+      const cmd = slashMatch[1]
+      const extra = slashMatch[2]?.trim() ?? ''
+      const prompt = SLASH_PROMPTS[cmd]
+      if (prompt) {
+        messageToSend = extra ? `${prompt}\n\n${extra}` : prompt
+        includeActiveFile = true
+      }
+    }
+
     dispatch({ type: 'SEND_MESSAGE' })
     postMessage({
       type: 'chat',
-      message: text,
+      message: messageToSend,
       persona: state.persona,
       thinkingBudget: state.thinkingBudget,
       includeWorkspace: state.includeWorkspace,
+      includeActiveFile,
+      attachedFiles: state.attachedFiles.map(f => f.path),
     })
-  }, [state.input, state.streaming, state.persona, state.thinkingBudget, state.includeWorkspace])
+  }, [state.input, state.streaming, state.persona, state.thinkingBudget, state.includeWorkspace, state.attachedFiles])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (slashMenuOpen) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault()
+          setSlashIndex(i => (i + 1) % filteredSlashCommands.length)
+          return
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault()
+          setSlashIndex(i => (i - 1 + filteredSlashCommands.length) % filteredSlashCommands.length)
+          return
+        }
+        if (e.key === 'Tab') {
+          e.preventDefault()
+          const selected = filteredSlashCommands[slashIndex]
+          if (selected) {
+            dispatch({ type: 'SET_INPUT', input: selected.id + ' ' })
+            setSlashIndex(0)
+          }
+          return
+        }
+      }
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         sendMessage()
       }
     },
-    [sendMessage],
+    [sendMessage, slashMenuOpen, filteredSlashCommands, slashIndex],
   )
 
   const handleProviderChange = (provider: Provider) => {
@@ -474,14 +561,30 @@ export default function App() {
 
   const estimatedCost = useMemo(() => {
     if (!state.input.trim()) return null
-    const modelInfo = state.models.find(m => m.id === state.model)
-    if (!modelInfo || modelInfo.promptCostPer1k === 0) return null
+
+    // Look up prompt pricing — OR models list first, then static fallback for
+    // non-OpenRouter providers (Anthropic Direct, Groq, Mistral, etc.)
+    let promptCostPer1k = state.models.find(m => m.id === state.model)?.promptCostPer1k
+    if (!promptCostPer1k) {
+      for (const list of Object.values(STATIC_MODELS)) {
+        const found = list?.find(m => m.id === state.model)
+        if (found && found.promptCostPer1k > 0) {
+          promptCostPer1k = found.promptCostPer1k
+          break
+        }
+      }
+    }
+    if (!promptCostPer1k) return null
+
+    // The system prompt (persona + rules) adds ~700 tokens to every request.
+    // Without this the estimate for short first messages is near zero and
+    // falls below the display threshold, making it appear broken.
+    const SYSTEM_PROMPT_OVERHEAD = 700
     const historyChars = state.messages.reduce((sum, m) => sum + m.content.length, 0)
     const wsTokens = state.includeWorkspace ? (state.workspaceTokens ?? 0) : 0
-    const estimatedTokens = Math.ceil((historyChars + state.input.length) / 4) + wsTokens
-    const cost = (estimatedTokens / 1000) * modelInfo.promptCostPer1k
-    if (cost < 0.00001) return null
-    if (cost < 0.0001) return '<$0.0001 est.'
+    const estimatedTokens = Math.ceil((historyChars + state.input.length) / 4) + wsTokens + SYSTEM_PROMPT_OVERHEAD
+    const cost = (estimatedTokens / 1000) * promptCostPer1k
+    if (cost < 0.0001) return `<$0.0001 est.`
     return `~$${cost.toFixed(4)} est.`
   }, [state.input, state.model, state.models, state.messages, state.includeWorkspace, state.workspaceTokens])
 
@@ -610,12 +713,53 @@ export default function App() {
                   </label>
                 </div>
               )}
+
+              {slashMenuOpen && (
+                <div className="slash-menu">
+                  {filteredSlashCommands.map((cmd, i) => (
+                    <button
+                      key={cmd.id}
+                      className={`slash-item${i === slashIndex ? ' selected' : ''}`}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        dispatch({ type: 'SET_INPUT', input: cmd.id + ' ' })
+                        setSlashIndex(0)
+                        textareaRef.current?.focus()
+                      }}
+                    >
+                      <span className="slash-cmd">{cmd.id}</span>
+                      <span className="slash-desc">{cmd.desc}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {state.attachedFiles.length > 0 && (
+                <div className="attached-files">
+                  {state.attachedFiles.map(f => (
+                    <span key={f.path} className="file-chip">
+                      📄 {f.name}
+                      <button
+                        className="file-chip-remove"
+                        onClick={() => dispatch({ type: 'REMOVE_ATTACHED_FILE', path: f.path })}
+                        title="Remove"
+                      >✕</button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
               <div className="input-row">
                 <button
                   className={`controls-toggle${controlsOpen ? ' active' : ''}`}
                   onClick={() => setControlsOpen(o => !o)}
                   title="Toggle persona, thinking & workspace controls"
                 >⚙️</button>
+                <button
+                  className="controls-toggle"
+                  onClick={() => postMessage({ type: 'requestFilePicker' })}
+                  title="Attach a file to context"
+                >📎</button>
                 <textarea
                   ref={textareaRef}
                   value={state.input}
@@ -642,6 +786,11 @@ export default function App() {
               </div>
               {estimatedCost && (
                 <div className="cost-estimate">{estimatedCost}</div>
+              )}
+              {state.activeFileName && (
+                <div className="active-file-indicator" title="Active editor — /fix, /explain, /tests, /doc will include this file">
+                  📄 {state.activeFileName}
+                </div>
               )}
             </div>
           </>

@@ -2,7 +2,7 @@
   "name": "code-pirate",
   "displayName": "Code Pirate",
   "description": "A 1:1 GitHub Copilot replacement built for developers who are done being held hostage and gaslit by SaaS bait-and-switches.",
-  "version": "0.1.15",
+  "version": "0.1.18",
   "publisher": "codepirate",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
@@ -148,8 +148,8 @@
         },
         "codePirate.model": {
           "type": "string",
-          "default": "anthropic/claude-opus-4",
-          "description": "Model identifier. Format depends on provider (e.g. 'anthropic/claude-opus-4' for OpenRouter, 'claude-opus-4-5' for Anthropic Direct)."
+          "default": "deepseek/deepseek-v4-pro",
+          "description": "Model identifier. Format depends on provider (e.g. 'deepseek/deepseek-v4-pro' for OpenRouter, 'claude-opus-4-5' for Anthropic Direct)."
         },
         "codePirate.apiEndpoint": {
           "type": "string",
@@ -167,6 +167,11 @@
             "ollama"
           ],
           "description": "Provider fallback order on request failure."
+        },
+        "codePirate.enableInlineCompletions": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable AI ghost-text completions as you type. Off by default — each keystroke fires a real API request against your key. Enable only if you understand and accept the per-token cost."
         }
       }
     }

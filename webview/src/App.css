@@ -449,6 +449,86 @@ input:focus, textarea:focus, select:focus {
   opacity: 1;
 }
 
+/* ─── Slash command menu ─────────────────────────────────────────────────── */
+
+.slash-menu {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+  border-radius: 3px;
+  overflow: hidden;
+  background: var(--vscode-input-background);
+}
+
+.slash-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  border-radius: 0;
+}
+.slash-item:hover,
+.slash-item.selected {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.slash-cmd {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-textLink-foreground);
+  flex-shrink: 0;
+}
+
+.slash-desc {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+/* ─── Attached files ─────────────────────────────────────────────────────── */
+
+.attached-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+  border-radius: 10px;
+  padding: 2px 6px 2px 8px;
+}
+
+.file-chip-remove {
+  background: transparent;
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 50%;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.7;
+}
+.file-chip-remove:hover { opacity: 1; background: rgba(255,255,255,0.15); }
+
+/* ─── Active file indicator ──────────────────────────────────────────────── */
+
+.active-file-indicator {
+  font-size: 10px;
+  opacity: 0.45;
+  text-align: right;
+  padding: 0 2px;
+  cursor: default;
+  font-family: var(--vscode-editor-font-family);
+}
+
 /* ─── Vault ──────────────────────────────────────────────────────────────── */
 
 .vault-view {

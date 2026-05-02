@@ -11,6 +11,8 @@ export async function buildRequestOptions(params: {
   persona: Persona
   vaultContext: string
   includeWorkspace: boolean
+  activeFileContent?: string
+  attachedFilesContent?: string[]
   maxTokens?: number
   thinkingBudget?: RequestOptions['thinkingBudget']
   signal?: AbortSignal
@@ -35,6 +37,14 @@ export async function buildRequestOptions(params: {
 
   if (workspaceContext) {
     systemParts.push(workspaceContext)
+  }
+
+  if (params.activeFileContent) {
+    systemParts.push(params.activeFileContent)
+  }
+
+  if (params.attachedFilesContent?.length) {
+    systemParts.push(params.attachedFilesContent.join('\n\n'))
   }
 
   return {

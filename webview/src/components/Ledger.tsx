@@ -40,7 +40,7 @@ export function Ledger({ ledger, provider, creditBalance }: Props) {
             </>
           ) : (
             <>
-              <span>OR spent (no limit)</span>
+              <span>OR total spend</span>
               <span>${Math.abs(creditBalance).toFixed(4)}</span>
             </>
           )}

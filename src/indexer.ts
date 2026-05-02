@@ -26,7 +26,7 @@ export class WorkspaceIndexer {
   // Build a token-weighted manifest of the most relevant workspace files
   async buildContext(
     currentFilePath?: string,
-    model = 'anthropic/claude-opus-4',
+    model = 'deepseek/deepseek-v4-pro',
   ): Promise<string> {
     const folders = vscode.workspace.workspaceFolders
     if (!folders || folders.length === 0) return ''
@@ -127,7 +127,7 @@ export class WorkspaceIndexer {
   // call on @workspace toggle without noticeable delay.
   async estimateTokenCount(
     currentFilePath?: string,
-    model = 'anthropic/claude-opus-4',
+    model = 'deepseek/deepseek-v4-pro',
   ): Promise<number> {
     const folders = vscode.workspace.workspaceFolders
     if (!folders || folders.length === 0) return 0

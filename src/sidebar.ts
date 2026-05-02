@@ -24,7 +24,8 @@ import type { VaultEntry } from './types'
 
 type WebviewMessage =
   | { type: 'ready' }
-  | { type: 'chat'; message: string; persona: Persona; thinkingBudget: ThinkingBudget; includeWorkspace: boolean }
+  | { type: 'chat'; message: string; persona: Persona; thinkingBudget: ThinkingBudget; includeWorkspace: boolean; includeActiveFile?: boolean; attachedFiles?: string[] }
+  | { type: 'requestFilePicker' }
   | { type: 'setApiKey'; key: string }
   | { type: 'setProvider'; provider: Provider }
   | { type: 'setModel'; model: string }
@@ -56,6 +57,8 @@ type ExtensionMessage =
   | { type: 'modelsLoaded'; models: ModelInfo[] }
   | { type: 'creditBalance'; balance: number }
   | { type: 'workspaceTokens'; tokens: number }
+  | { type: 'filePicked'; path: string; name: string }
+  | { type: 'activeFileChanged'; name: string | null }
   | { type: 'error'; message: string }
 
 interface ModelInfo {
@@ -151,6 +154,16 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         this.sendInitialState().catch(() => {})
       }
     })
+
+    // Track the active editor and notify the webview on every change
+    const notifyActiveFile = () => {
+      const doc = vscode.window.activeTextEditor?.document
+      const name = doc?.fileName ? path.basename(doc.fileName) : null
+      this.post({ type: 'activeFileChanged', name })
+    }
+    notifyActiveFile()
+    const editorSub = vscode.window.onDidChangeActiveTextEditor(() => notifyActiveFile())
+    webviewView.onDidDispose(() => editorSub.dispose())
   }
 
   // Called from extension.ts to inject a terminal error as a chat message
@@ -175,8 +188,25 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         break
 
       case 'chat':
-        await this.handleChat(msg.message, msg.persona, msg.thinkingBudget, msg.includeWorkspace)
+        await this.handleChat(msg.message, msg.persona, msg.thinkingBudget, msg.includeWorkspace, msg.includeActiveFile ?? false, msg.attachedFiles ?? [])
         break
+
+      case 'requestFilePicker': {
+        const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**', 200)
+        const items = files.map(f => ({
+          label: path.basename(f.fsPath),
+          description: vscode.workspace.asRelativePath(f),
+          fsPath: f.fsPath,
+        }))
+        const picked = await vscode.window.showQuickPick(items, {
+          placeHolder: 'Attach a file to your message…',
+          matchOnDescription: true,
+        })
+        if (picked) {
+          this.post({ type: 'filePicked', path: picked.fsPath, name: picked.description ?? picked.label })
+        }
+        break
+      }
 
       case 'setApiKey': {
         await this.secrets.store('codePirate.apiKey', msg.key.trim())
@@ -248,7 +278,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       case 'estimateWorkspaceTokens': {
         const currentFile = vscode.window.activeTextEditor?.document.uri.fsPath
         const vsConfig = vscode.workspace.getConfiguration('codePirate')
-        const model = vsConfig.get<string>('model') ?? 'anthropic/claude-opus-4'
+        const model = vsConfig.get<string>('model') ?? 'deepseek/deepseek-v4-pro'
         const tokens = await this.indexer.estimateTokenCount(currentFile, model)
         dbg(`estimateWorkspaceTokens: ${tokens} tokens`)
         this.post({ type: 'workspaceTokens', tokens })
@@ -262,6 +292,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     persona: Persona,
     thinkingBudget: ThinkingBudget,
     includeWorkspace: boolean,
+    includeActiveFile = false,
+    attachedFiles: string[] = [],
   ): Promise<void> {
     if (this.streaming) {
       this.post({ type: 'error', message: 'A response is already in progress. Cancel it first.' })
@@ -288,11 +320,36 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     try {
       const model = config.model
+      // Read active file content for slash commands / includeActiveFile flag
+      let activeFileContent: string | undefined
+      if (includeActiveFile) {
+        const doc = vscode.window.activeTextEditor?.document
+        if (doc) {
+          const lang = doc.languageId
+          const name = path.basename(doc.fileName)
+          const text = doc.getText().slice(0, 20_000)
+          activeFileContent = `[Active File: ${name}]\n\`\`\`${lang}\n${text}\n\`\`\``
+        }
+      }
+
+      // Read content of any #file attachments
+      const attachedFilesContent: string[] = []
+      for (const filePath of attachedFiles) {
+        try {
+          const text = fs.readFileSync(filePath, 'utf-8').slice(0, 10_000)
+          const relPath = vscode.workspace.asRelativePath(filePath)
+          const lang = path.extname(filePath).replace('.', '') || 'text'
+          attachedFilesContent.push(`[Attached File: ${relPath}]\n\`\`\`${lang}\n${text}\n\`\`\``)
+        } catch { /* file unreadable — skip */ }
+      }
+
       const options = await buildRequestOptions({
         messages: this.conversationHistory,
         persona,
         vaultContext: this.vaultManager.getFormattedForContext(),
         includeWorkspace,
+        activeFileContent,
+        attachedFilesContent,
         thinkingBudget,
         signal: this.abortController.signal,
         model,
@@ -336,10 +393,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       } else {
         const raw = err instanceof Error ? err.message : String(err)
         // Map opaque network errors to actionable messages
-        const msg =
-          raw === 'terminated' || raw.includes('terminated') || raw === 'fetch failed'
-            ? 'Connection dropped — the provider closed the stream unexpectedly. This can happen with very long responses. Try again, or switch to a faster/smaller model.'
-            : raw
+        let msg: string
+        if (raw === 'terminated' || raw.includes('terminated') || raw === 'fetch failed') {
+          msg = 'Connection dropped — the provider closed the stream unexpectedly. This can happen with very long responses. Try again, or switch to a faster/smaller model.'
+        } else if (raw.includes('HTTP 402') || raw.includes('402')) {
+          msg = 'Out of OpenRouter credits. Top up at openrouter.ai/settings/credits, then try again. Tip: set a spending limit on your key to prevent surprises.'
+        } else {
+          msg = raw
+        }
         this.post({ type: 'streamError', error: msg })
         // Remove the user message from history on error
         this.conversationHistory.pop()
@@ -354,7 +415,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     dbg('sendInitialState start')
     const config = vscode.workspace.getConfiguration('codePirate')
     const provider = (config.get<Provider>('provider')) ?? 'openrouter'
-    const model = config.get<string>('model') ?? 'anthropic/claude-opus-4'
+    const model = config.get<string>('model') ?? 'deepseek/deepseek-v4-pro'
     const licenseStatus = this.licenseManager.getStatus()
 
     const allProviders = (Object.entries(PROVIDER_PRESETS) as Array<[Provider, typeof PROVIDER_PRESETS[Provider]]>).map(
@@ -477,7 +538,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     return {
       provider,
-      model: vsConfig.get<string>('model') ?? 'anthropic/claude-opus-4',
+      model: vsConfig.get<string>('model') ?? 'deepseek/deepseek-v4-pro',
       apiKey: apiKey ?? '',
       apiEndpoint: vsConfig.get<string>('apiEndpoint'),
     }
@@ -495,7 +556,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     if (isLocal(provider)) {
       return {
         provider,
-        model: vsConfig.get<string>('model') ?? 'anthropic/claude-opus-4',
+        model: vsConfig.get<string>('model') ?? 'deepseek/deepseek-v4-pro',
         apiKey: '',
         apiEndpoint: vsConfig.get<string>('apiEndpoint'),
       }

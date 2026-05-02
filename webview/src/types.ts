@@ -78,6 +78,9 @@ export type ExtensionMessage =
   | { type: 'apiKeySet'; hasKey: boolean }
   | { type: 'modelsLoaded'; models: ModelInfo[] }
   | { type: 'creditBalance'; balance: number }
+  | { type: 'filePicked'; path: string; name: string }
+  | { type: 'activeFileChanged'; name: string | null }
+  | { type: 'workspaceTokens'; tokens: number }
   | { type: 'workspaceTokens'; tokens: number }
   | { type: 'error'; message: string }
 
