@@ -5,6 +5,10 @@ All notable changes are documented here. Format follows [Keep a Changelog](https
 <!-- LAST_PACKAGED_COMMIT: 385ac2fbaeb85088f680d785f956587639210bb4 -->
 <!-- CHANGES -->
 
+## [0.1.24] - 2026-05-02
+
+---
+
 ## [0.1.23] - 2026-05-02
 
 ### Fixed
