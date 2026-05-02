@@ -757,8 +757,9 @@ export default function App() {
                 >⚙️</button>
                 <button
                   className="controls-toggle"
-                  onClick={() => postMessage({ type: 'requestFilePicker' })}
-                  title="Attach a file to context"
+                  onClick={() => postMessage({ type: 'requestActiveFile' })}
+                  onContextMenu={(e) => { e.preventDefault(); postMessage({ type: 'requestFilePicker' }) }}
+                  title="Attach active file (right-click to browse all files)"
                 >📎</button>
                 <textarea
                   ref={textareaRef}
@@ -849,7 +850,7 @@ export default function App() {
       </div>
 
       {/* Ledger footer — always shown */}
-      <Ledger ledger={state.ledger} provider={state.provider} creditBalance={state.creditBalance} />
+      <Ledger ledger={state.ledger} provider={state.provider} creditBalance={state.creditBalance} estimatedCost={estimatedCost} />
     </div>
   )
 }

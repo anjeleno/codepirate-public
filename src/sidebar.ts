@@ -26,6 +26,7 @@ type WebviewMessage =
   | { type: 'ready' }
   | { type: 'chat'; message: string; persona: Persona; thinkingBudget: ThinkingBudget; includeWorkspace: boolean; includeActiveFile?: boolean; attachedFiles?: string[] }
   | { type: 'requestFilePicker' }
+  | { type: 'requestActiveFile' }
   | { type: 'setApiKey'; key: string }
   | { type: 'setProvider'; provider: Provider }
   | { type: 'setModel'; model: string }
@@ -191,6 +192,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         await this.handleChat(msg.message, msg.persona, msg.thinkingBudget, msg.includeWorkspace, msg.includeActiveFile ?? false, msg.attachedFiles ?? [])
         break
 
+      case 'requestActiveFile': {
+        const doc = vscode.window.activeTextEditor?.document
+        if (doc) {
+          this.post({
+            type: 'filePicked',
+            path: doc.uri.fsPath,
+            name: vscode.workspace.asRelativePath(doc.uri),
+          })
+        }
+        break
+      }
+
       case 'requestFilePicker': {
         const files = await vscode.workspace.findFiles('**/*', '**/node_modules/**', 200)
         const items = files.map(f => ({
@@ -320,9 +333,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     try {
       const model = config.model
-      // Read active file content for slash commands / includeActiveFile flag
+    // Always inject active file content — user always wants their open file in context
       let activeFileContent: string | undefined
-      if (includeActiveFile) {
+      const activeDoc = vscode.window.activeTextEditor?.document
+      if (activeDoc) {
+        const lang = activeDoc.languageId
+        const name = path.basename(activeDoc.fileName)
+        const text = activeDoc.getText().slice(0, 20_000)
+        activeFileContent = `[Active File: ${name}]\n\`\`\`${lang}\n${text}\n\`\`\``
+      }
+
+      // Also honour explicit includeActiveFile flag (e.g. from slash commands — same content, just named)
+      if (!activeFileContent && includeActiveFile) {
         const doc = vscode.window.activeTextEditor?.document
         if (doc) {
           const lang = doc.languageId
