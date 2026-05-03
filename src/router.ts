@@ -145,6 +145,13 @@ function buildOpenAIRequest(
     body['max_tokens'] = Math.max(maxTokens, THINKING_TOKENS[thinkingBudget] + 4096)
   }
 
+  // DeepSeek V4-Pro recommended sampling parameters per their model card.
+  // Set explicitly — do not rely on OpenRouter defaults.
+  if (model.includes('deepseek')) {
+    body['temperature'] = 1.0
+    body['top_p'] = 1.0
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     Authorization: '', // filled in by caller

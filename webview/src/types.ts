@@ -11,7 +11,7 @@ export type Provider =
   | 'gemini'
   | 'custom'
 
-export type Persona = 'architect' | 'diff' | 'snippet'
+export type Persona = 'core' | 'diff' | 'snippet'
 export type ThinkingBudget = 'off' | 'medium' | 'high' | 'max'
 
 export interface ChatMessage {
@@ -81,7 +81,7 @@ export type ExtensionMessage =
   | { type: 'filePicked'; path: string; name: string }
   | { type: 'activeFileChanged'; name: string | null }
   | { type: 'workspaceTokens'; tokens: number }
-  | { type: 'workspaceTokens'; tokens: number }
+  | { type: 'buildPaused' }
   | { type: 'error'; message: string }
 
 // ─── Webview → Extension messages ─────────────────────────────────────────────

@@ -2,8 +2,19 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: 385ac2fbaeb85088f680d785f956587639210bb4 -->
+<!-- LAST_PACKAGED_COMMIT: ee8d7e521f8db9fd2e7557b7408c366d8cedec5f -->
 <!-- CHANGES -->
+
+## [0.1.25] - 2026-05-03
+
+### Added
+- CORE integration
+
+### Changed
+- Phase detection, autonomous continuation loop, DeepSeek reasoning directives
+- Just cleaning up docs and pushing revised Marketplace links to all of the web pages, change log, and then updating the blueprint, etc.
+
+---
 
 ## [0.1.24] - 2026-05-02
 

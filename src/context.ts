@@ -3,6 +3,7 @@ import { getRules } from './rules'
 import { getSystemPrompt } from './personas'
 import { WorkspaceIndexer } from './indexer'
 import type { ChatMessage, Persona, RequestOptions } from './types'
+import type { Phase } from './phaseDetector'
 
 const indexer = new WorkspaceIndexer()
 
@@ -17,6 +18,7 @@ export async function buildRequestOptions(params: {
   thinkingBudget?: RequestOptions['thinkingBudget']
   signal?: AbortSignal
   model?: string
+  phase?: Phase
 }): Promise<RequestOptions> {
   const rules = await getRules()
   const currentFile = vscode.window.activeTextEditor?.document.uri.fsPath
@@ -25,7 +27,7 @@ export async function buildRequestOptions(params: {
     ? await indexer.buildContext(currentFile, params.model)
     : ''
 
-  const systemParts: string[] = [getSystemPrompt(params.persona, params.model)]
+  const systemParts: string[] = [getSystemPrompt(params.persona, params.model, params.phase)]
 
   if (rules) {
     systemParts.push(`[Project Rules]\n${rules}`)

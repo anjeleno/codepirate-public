@@ -10,6 +10,7 @@ import { BudgetLedger } from './budget'
 import { VaultManager } from './vault'
 import { SnapshotCache } from './cache'
 import { LicenseManager } from './license/licenseManager'
+import { detectPhase, phaseToThinkingBudget, phaseToMaxTokens } from './phaseDetector'
 import type {
   RouterConfig,
   Provider,
@@ -17,6 +18,7 @@ import type {
   ThinkingBudget,
   ChatMessage,
   SessionCost,
+  RequestOptions,
 } from './types'
 import type { VaultEntry } from './types'
 
@@ -40,6 +42,8 @@ type WebviewMessage =
   | { type: 'clearHistory' }
   | { type: 'terminalError'; errorText: string }
   | { type: 'estimateWorkspaceTokens' }
+  | { type: 'continue' }
+  | { type: 'resumeBuild' }
 
 // ─── Extension → Webview message types ───────────────────────────────────────
 
@@ -61,6 +65,7 @@ type ExtensionMessage =
   | { type: 'filePicked'; path: string; name: string }
   | { type: 'activeFileChanged'; name: string | null }
   | { type: 'error'; message: string }
+  | { type: 'buildPaused' }
 
 interface ModelInfo {
   id: string
@@ -114,6 +119,14 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private readonly snapshotCache = new SnapshotCache()
   private readonly diffManager: DiffManager
   private readonly indexer = new WorkspaceIndexer()
+
+  // CORE continuation state — reset on each new user message, discarded on build complete
+  private continuationBuffer: ChatMessage[] = []
+  private continuationCount = 0
+  private lastCoreSystemPrompt: string | null = null
+  private lastCoreRouterConfig: RouterConfig | null = null
+  private lastCoreMaxTokens = 8192
+  private lastCoreThinkingBudget: ThinkingBudget = 'off'
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -172,7 +185,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     if (!this._view) return
     const message = `Explain this error and suggest a fix:\n\`\`\`\n${errorText}\n\`\`\``
     // Simulate a chat message from the user
-    await this.handleMessage({ type: 'chat', message, persona: 'architect', thinkingBudget: 'off', includeWorkspace: false })
+    await this.handleMessage({ type: 'chat', message, persona: 'core', thinkingBudget: 'off', includeWorkspace: false })
   }
 
   private async handleMessage(msg: WebviewMessage): Promise<void> {
@@ -281,11 +294,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
       case 'clearHistory':
         this.conversationHistory = []
+        this.continuationBuffer = []
+        this.continuationCount = 0
+        this.lastCoreSystemPrompt = null
+        this.lastCoreRouterConfig = null
         this.ledger.reset()
         break
 
       case 'terminalError':
         await this.sendTerminalError(msg.errorText)
+        break
+
+      case 'continue':
+        await this.handleContinue()
+        break
+
+      case 'resumeBuild':
+        this.continuationCount = 0
+        await this.handleContinue()
         break
 
       case 'estimateWorkspaceTokens': {
@@ -323,6 +349,24 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     dbg(`handleChat: provider=${config.provider} model=${config.model} hasKey=${!!config.apiKey}`)
+
+    // Phase detection for CORE persona — overrides the user-selected thinkingBudget
+    // with the phase-computed value and sets the appropriate maxTokens.
+    // Non-CORE personas skip this entirely.
+    let effectiveThinkingBudget = thinkingBudget
+    let effectiveMaxTokens: number | undefined
+    let detectedPhase = undefined
+    if (persona === 'core') {
+      detectedPhase = detectPhase(userMessage)
+      effectiveThinkingBudget = phaseToThinkingBudget(detectedPhase)
+      const phaseTokens = phaseToMaxTokens(detectedPhase)
+      const vsConfig = vscode.workspace.getConfiguration('codePirate')
+      const userCap = vsConfig.get<number>('maxTokens')
+      effectiveMaxTokens = userCap ? Math.min(phaseTokens, userCap) : phaseTokens
+      // Reset continuation state on each new CORE message
+      this.continuationBuffer = []
+      this.continuationCount = 0
+    }
 
     this.streaming = true
     this.abortController = new AbortController()
@@ -372,10 +416,20 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         includeWorkspace,
         activeFileContent,
         attachedFilesContent,
-        thinkingBudget,
+        thinkingBudget: effectiveThinkingBudget,
+        maxTokens: effectiveMaxTokens,
         signal: this.abortController.signal,
         model,
+        phase: detectedPhase,
       })
+
+      // Store for continuation reuse (CORE only)
+      if (persona === 'core') {
+        this.lastCoreSystemPrompt = options.systemPrompt
+        this.lastCoreRouterConfig = config
+        this.lastCoreMaxTokens = options.maxTokens ?? 8192
+        this.lastCoreThinkingBudget = options.thinkingBudget ?? 'off'
+      }
 
       const response = await routeRequest(config, options)
       dbg(`OR response: status=${response.status} x-model=${response.headers.get('x-model') ?? 'n/a'} x-request-id=${response.headers.get('x-request-id') ?? 'n/a'}`)
@@ -426,6 +480,83 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         this.post({ type: 'streamError', error: msg })
         // Remove the user message from history on error
         this.conversationHistory.pop()
+      }
+    } finally {
+      this.streaming = false
+      this.post({ type: 'streamEnd', thinking: fullThinking || undefined })
+    }
+  }
+
+  // ─── CORE autonomous continuation ─────────────────────────────────────────
+  // Called when the webview sees [CONTINUING in a CORE response and sends
+  // { type: 'continue' }. Maintains a continuationBuffer separate from
+  // conversationHistory so continuation turns never appear as user bubbles in
+  // the chat UI and can be cleanly discarded when the build is complete.
+
+  private async handleContinue(): Promise<void> {
+    if (this.streaming) return
+    if (!this.lastCoreSystemPrompt || !this.lastCoreRouterConfig) return
+
+    if (this.continuationCount >= 12) {
+      this.continuationBuffer = []
+      this.continuationCount = 0
+      this.post({ type: 'buildPaused' })
+      return
+    }
+
+    this.continuationBuffer.push({ role: 'user', content: 'continue' })
+    this.continuationCount++
+
+    this.streaming = true
+    this.abortController = new AbortController()
+
+    let fullResponse = ''
+    let fullThinking = ''
+
+    try {
+      const allMessages: ChatMessage[] = [
+        ...this.conversationHistory,
+        ...this.continuationBuffer,
+      ]
+
+      const options: RequestOptions = {
+        messages: allMessages,
+        systemPrompt: this.lastCoreSystemPrompt,
+        maxTokens: this.lastCoreMaxTokens,
+        thinkingBudget: this.lastCoreThinkingBudget,
+        stream: true,
+        signal: this.abortController.signal,
+      }
+
+      const response = await routeRequest(this.lastCoreRouterConfig, options)
+
+      for await (const event of parseStream(response, this.lastCoreRouterConfig.provider)) {
+        if (event.type === 'text') {
+          fullResponse += event.chunk
+          this.post({ type: 'streamChunk', text: event.chunk })
+        } else if (event.type === 'thinking') {
+          fullThinking += event.chunk
+          this.post({ type: 'thinkingChunk', text: event.chunk })
+        } else if (event.type === 'usage' && !isLocal(this.lastCoreRouterConfig.provider)) {
+          const sessionCost = this.ledger.record(event.usage, this.lastCoreRouterConfig.model)
+          this.post({ type: 'ledgerUpdate', ledger: sessionCost })
+        }
+      }
+
+      // Add the continuation response to main history (not buffer) so it's
+      // visible in context for all future turns in this session.
+      this.conversationHistory.push({ role: 'assistant', content: fullResponse })
+
+      // Apply any file changes in the continuation output
+      const fileChanges = parseFileChanges(fullResponse)
+      if (fileChanges.length > 0) {
+        this.diffManager.setPendingChanges(fileChanges)
+        this.post({ type: 'diffReady', count: fileChanges.length, files: fileChanges.map((c) => c.path) })
+        void this.diffManager.previewChanges()
+      }
+    } catch (err) {
+      if (!(err instanceof Error && err.name === 'AbortError')) {
+        this.post({ type: 'streamError', error: err instanceof Error ? err.message : String(err) })
       }
     } finally {
       this.streaming = false

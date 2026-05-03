@@ -77,6 +77,8 @@ interface AppState {
   workspaceTokens: number | null // null = not yet estimated
   activeFileName: string | null
   attachedFiles: Array<{ path: string; name: string }>
+  isCoreBuilding: boolean
+  buildPaused: boolean
 }
 
 const emptyLedger: SessionCost = {
@@ -94,7 +96,7 @@ const initialState: AppState = {
   streamingThinking: '',
   streaming: false,
   error: null,
-  persona: 'architect',
+  persona: 'core',
   thinkingBudget: 'off',
   includeWorkspace: false,
   provider: 'openrouter',
@@ -113,6 +115,8 @@ const initialState: AppState = {
   workspaceTokens: null,
   activeFileName: null,
   attachedFiles: [],
+  isCoreBuilding: false,
+  buildPaused: false,
 }
 
 type Action =
@@ -147,6 +151,8 @@ type Action =
   | { type: 'ACTIVE_FILE_CHANGED'; name: string | null }
   | { type: 'FILE_PICKED'; path: string; name: string }
   | { type: 'REMOVE_ATTACHED_FILE'; path: string }
+  | { type: 'SET_CORE_BUILDING'; active: boolean }
+  | { type: 'BUILD_PAUSED' }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -251,7 +257,7 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, error: null }
 
     case 'CLEAR_HISTORY':
-      return { ...state, messages: [], ledger: emptyLedger, pendingDiff: null }
+      return { ...state, messages: [], ledger: emptyLedger, pendingDiff: null, isCoreBuilding: false, buildPaused: false }
 
     case 'CREDIT_BALANCE':
       return { ...state, creditBalance: action.balance }
@@ -300,6 +306,12 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'REMOVE_ATTACHED_FILE':
       return { ...state, attachedFiles: state.attachedFiles.filter(f => f.path !== action.path) }
+
+    case 'SET_CORE_BUILDING':
+      return { ...state, isCoreBuilding: action.active, buildPaused: false }
+
+    case 'BUILD_PAUSED':
+      return { ...state, isCoreBuilding: false, buildPaused: true }
 
     default:
       return state
@@ -357,6 +369,10 @@ export default function App() {
   // Receive messages from extension host
   useEffect(() => {
     let initialized = false
+    // Local tracking of streaming text for the continuation check.
+    // Using a closure variable avoids stale-ref issues since the handler
+    // is defined once and never re-registered.
+    let streamingText = ''
 
     const handler = (event: MessageEvent) => {
       const msg = event.data as ExtensionMessage
@@ -366,13 +382,28 @@ export default function App() {
           dispatch({ type: 'INITIALIZED', state: msg.state })
           break
         case 'streamChunk':
+          streamingText += msg.text
           dispatch({ type: 'STREAM_CHUNK', text: msg.text })
           break
         case 'thinkingChunk':
           dispatch({ type: 'THINKING_CHUNK', text: msg.text })
           break
-        case 'streamEnd':
+        case 'streamEnd': {
+          const textForCheck = streamingText
+          streamingText = ''
           dispatch({ type: 'STREAM_END', thinking: msg.thinking })
+          // CORE autonomous continuation — check if the response signals more output.
+          // The extension host tracks the 12-continuation cap and sends buildPaused if hit.
+          if (/\[CONTINUING/i.test(textForCheck)) {
+            dispatch({ type: 'SET_CORE_BUILDING', active: true })
+            postMessage({ type: 'continue' })
+          } else {
+            dispatch({ type: 'SET_CORE_BUILDING', active: false })
+          }
+          break
+        }
+        case 'buildPaused':
+          dispatch({ type: 'BUILD_PAUSED' })
           break
         case 'streamError':
           dispatch({ type: 'STREAM_ERROR', error: msg.error })
@@ -785,6 +816,24 @@ export default function App() {
                   </button>
                 )}
               </div>
+              {state.isCoreBuilding && !state.buildPaused && (
+                <div className="core-building-banner">Building... auto-continuing</div>
+              )}
+              {state.buildPaused && (
+                <div className="core-building-banner core-paused">
+                  Build paused
+                  <button
+                    className="btn-secondary"
+                    style={{ marginLeft: 8, padding: '2px 8px', fontSize: '11px' }}
+                    onClick={() => {
+                      dispatch({ type: 'SET_CORE_BUILDING', active: true })
+                      postMessage({ type: 'resumeBuild' })
+                    }}
+                  >
+                    Resume
+                  </button>
+                </div>
+              )}
               {estimatedCost && (
                 <div className="cost-estimate">{estimatedCost}</div>
               )}

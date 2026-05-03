@@ -2,7 +2,7 @@
   "name": "code-pirate",
   "displayName": "Code Pirate",
   "description": "A 1:1 GitHub Copilot replacement built for developers who are done being held hostage and gaslit by SaaS bait-and-switches.",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "publisher": "codepirate",
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
@@ -172,6 +172,11 @@
           "type": "boolean",
           "default": false,
           "description": "Enable AI ghost-text completions as you type. Off by default — each keystroke fires a real API request against your key. Enable only if you understand and accept the per-token cost."
+        },
+        "codePirate.maxTokens": {
+          "type": "number",
+          "default": 8192,
+          "description": "Maximum tokens per response (cap). When using the CORE persona, token limits are set automatically per phase (Build/Architecture: 32768, all others: 8192). Set this to override the phase-computed value. DeepSeek V4-Pro supports up to 1M context."
         }
       }
     }

@@ -1,7 +1,7 @@
 import type { Persona } from '../types'
 
 const PERSONAS: Array<{ id: Persona; label: string; title: string }> = [
-  { id: 'architect', label: 'Arch', title: 'Lead Architect — full files, systems thinking' },
+  { id: 'core', label: 'CORE', title: 'CORE — senior principal engineer, autonomous builds, full-depth reasoning' },
   { id: 'diff', label: 'Diff', title: 'Diff Agent — precise file modifications only' },
   { id: 'snippet', label: 'Snip', title: 'Snippet Engine — fast, minimal code snippets' },
 ]

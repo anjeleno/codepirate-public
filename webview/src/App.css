@@ -755,3 +755,18 @@ input:focus, textarea:focus, select:focus {
   opacity: 0.75;
   line-height: 1.5;
 }
+
+.core-building-banner {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  background: var(--vscode-editor-inactiveSelectionBackground, rgba(255,255,255,0.04));
+  border-top: 1px solid var(--vscode-panel-border, rgba(255,255,255,0.1));
+}
+
+.core-building-banner.core-paused {
+  color: var(--vscode-notificationsWarningIcon-foreground, #cca700);
+}
