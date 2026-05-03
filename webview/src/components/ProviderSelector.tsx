@@ -3,6 +3,15 @@ import type { Provider, ProviderInfo, ModelInfo } from '../types'
 
 // Static model lists for non-OpenRouter providers
 export const STATIC_MODELS: Partial<Record<Provider, ModelInfo[]>> = {
+  // Fallback pricing for common OpenRouter models.
+  // OR serves versioned slugs (e.g. deepseek/deepseek-v4-pro-20260423) in its
+  // models list, so the live lookup by unversioned ID fails. These entries
+  // ensure the pre-send cost estimate always has data for the default model.
+  openrouter: [
+    { id: 'deepseek/deepseek-v4-pro', name: 'DeepSeek V4-Pro', contextLength: 163840, promptCostPer1k: 0.00108, completionCostPer1k: 0.00555, provider: 'deepseek' },
+    { id: 'anthropic/claude-opus-4', name: 'Claude Opus 4', contextLength: 200000, promptCostPer1k: 0.015, completionCostPer1k: 0.075, provider: 'anthropic' },
+    { id: 'anthropic/claude-sonnet-4-5', name: 'Claude Sonnet 4.5', contextLength: 200000, promptCostPer1k: 0.003, completionCostPer1k: 0.015, provider: 'anthropic' },
+  ],
   'anthropic-direct': [
     { id: 'claude-opus-4-5', name: 'Claude Opus 4.5', contextLength: 200000, promptCostPer1k: 0.015, completionCostPer1k: 0.075, provider: 'anthropic' },
     { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5', contextLength: 200000, promptCostPer1k: 0.003, completionCostPer1k: 0.015, provider: 'anthropic' },

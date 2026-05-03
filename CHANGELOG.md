@@ -2,17 +2,34 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: ee8d7e521f8db9fd2e7557b7408c366d8cedec5f -->
+<!-- LAST_PACKAGED_COMMIT: 13a67ec75072197520357657363f1f0e98e99aed -->
 <!-- CHANGES -->
+
+## [0.1.26] - 2026-05-03
+
+### Fixed
+- Restore pre-send cost estimate
+
+### Changed
+- OR returns versioned model slugs, add prefix-match fallback and openrouter static pricing
+- Bump to v0.1.25
+- CORE persona, phase detection, continuation loop
+
+---
 
 ## [0.1.25] - 2026-05-03
 
 ### Added
-- CORE integration
+- **CORE persona** — replaces Lead Architect (`'architect'`→`'core'`); full `PersonaV1.md` embedded as system prompt; senior principal engineer identity with autonomous build mode
+- `src/phaseDetector.ts` — new canonical module: `Phase` type, `detectPhase()` (regex over user message), `phaseToThinkingBudget()`, `phaseToMaxTokens()`
+- `codePirate.maxTokens` setting — user override for phase-computed token ceiling (DeepSeek V4-Pro supports up to 1M context)
+- Building/paused banners in sidebar chat during autonomous CORE builds
 
 ### Changed
-- Phase detection, autonomous continuation loop, DeepSeek reasoning directives
-- Just cleaning up docs and pushing revised Marketplace links to all of the web pages, change log, and then updating the blueprint, etc.
+- **Autonomous continuation loop** — CORE emits `[CONTINUING — next: path]` sentinel; App.tsx auto-triggers continuation; sidebar.ts drives up to 12 auto-continuations with `buildPaused` safety gate and Resume button
+- **DeepSeek V4-Pro**: explicit `temperature=1.0` / `top_p=1.0` in `buildOpenAIRequest`; reasoning directives (non-think / think-high / think-max) appended to system prompt by phase
+- `getSystemPrompt(persona, model?, phase?)` extended with `phase` param for directive injection
+- Phase-aware token limits: Build/Architecture → 32768; all others → 8192
 
 ---
 

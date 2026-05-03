@@ -593,9 +593,15 @@ export default function App() {
   const estimatedCost = useMemo(() => {
     if (!state.input.trim()) return null
 
-    // Look up prompt pricing — OR models list first, then static fallback for
-    // non-OpenRouter providers (Anthropic Direct, Groq, Mistral, etc.)
+    // Look up prompt pricing — OR models list first (exact match, then prefix
+    // match for versioned slugs like deepseek/deepseek-v4-pro-20260423),
+    // then static fallback for non-OpenRouter providers.
     let promptCostPer1k = state.models.find(m => m.id === state.model)?.promptCostPer1k
+    if (!promptCostPer1k) {
+      // OR serves versioned IDs; try prefix match (e.g. 'deepseek/deepseek-v4-pro' matches 'deepseek/deepseek-v4-pro-20260423')
+      const prefixMatch = state.models.find(m => m.id.startsWith(state.model) && m.promptCostPer1k > 0)
+      if (prefixMatch) promptCostPer1k = prefixMatch.promptCostPer1k
+    }
     if (!promptCostPer1k) {
       for (const list of Object.values(STATIC_MODELS)) {
         const found = list?.find(m => m.id === state.model)
