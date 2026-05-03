@@ -88,6 +88,7 @@ interface AppState {
   isCoreBuilding: boolean
   buildPaused: boolean
   toolProgressItems: ToolProgressItem[]
+  waitingForResponse: boolean
 }
 
 const emptyLedger: SessionCost = {
@@ -127,9 +128,11 @@ const initialState: AppState = {
   isCoreBuilding: false,
   buildPaused: false,
   toolProgressItems: [],
+  waitingForResponse: false,
 }
 
 type Action =
+  | { type: 'WAITING_FOR_RESPONSE' }
   | { type: 'INITIALIZED'; state: InitialState }
   | { type: 'STREAM_CHUNK'; text: string }
   | { type: 'THINKING_CHUNK'; text: string }
@@ -179,14 +182,21 @@ function reducer(state: AppState, action: Action): AppState {
         ledger: s.ledger,
         vaultEntries: s.vaultEntries,
         providers: s.providers,
+        // If a stream is already in progress when the webview (re)loads, preserve
+        // the streaming flag so the UI shows the correct in-progress state.
+        streaming: s.streaming ?? state.streaming,
+        waitingForResponse: s.streaming ? true : state.waitingForResponse,
       }
     }
 
+    case 'WAITING_FOR_RESPONSE':
+      return { ...state, waitingForResponse: true }
+
     case 'STREAM_CHUNK':
-      return { ...state, streaming: true, streamingText: state.streamingText + action.text }
+      return { ...state, streaming: true, waitingForResponse: false, streamingText: state.streamingText + action.text }
 
     case 'THINKING_CHUNK':
-      return { ...state, streaming: true, streamingThinking: state.streamingThinking + action.text }
+      return { ...state, streaming: true, waitingForResponse: false, streamingThinking: state.streamingThinking + action.text }
 
     case 'STREAM_END': {
       if (!state.streamingText && !state.streaming) return state
@@ -200,6 +210,7 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         streaming: false,
+        waitingForResponse: false,
         streamingText: '',
         streamingThinking: '',
         toolProgressItems: [],
@@ -210,7 +221,7 @@ function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'STREAM_ERROR':
-      return { ...state, streaming: false, streamingText: '', streamingThinking: '', error: action.error }
+      return { ...state, streaming: false, waitingForResponse: false, streamingText: '', streamingThinking: '', error: action.error }
 
     case 'LEDGER_UPDATE':
       return { ...state, ledger: action.ledger }
@@ -348,7 +359,7 @@ function reducer(state: AppState, action: Action): AppState {
           { id: Date.now().toString(), toolName: incoming.toolName, args: incoming.args, status: incoming.status, result: incoming.result },
         ]
       }
-      return { ...state, toolProgressItems: updated }
+      return { ...state, waitingForResponse: false, toolProgressItems: updated }
     }
 
     default:
@@ -366,6 +377,30 @@ export default function App() {
   const [inputHeight, setInputHeight] = useState(60)
   const [slashIndex, setSlashIndex] = useState(0)
   const resizeDragRef = useRef<{ startY: number; startH: number } | null>(null)
+  const [elapsedSecs, setElapsedSecs] = useState(0)
+  const streamStartRef = useRef<number | null>(null)
+
+  // Elapsed timer — runs while waiting for first token or actively streaming.
+  // Gives the user a live "Working… (42s)" indicator so they can tell whether
+  // the model is still alive or has silently stalled.
+  useEffect(() => {
+    const active = state.streaming || state.waitingForResponse
+    if (active) {
+      if (!streamStartRef.current) {
+        streamStartRef.current = Date.now()
+        setElapsedSecs(0)
+      }
+      const id = setInterval(() => {
+        if (streamStartRef.current) {
+          setElapsedSecs(Math.floor((Date.now() - streamStartRef.current) / 1000))
+        }
+      }, 1000)
+      return () => clearInterval(id)
+    } else {
+      streamStartRef.current = null
+      setElapsedSecs(0)
+    }
+  }, [state.streaming, state.waitingForResponse])
 
   const filteredSlashCommands = useMemo(() => {
     if (!state.input.startsWith('/')) return []
@@ -434,6 +469,7 @@ export default function App() {
           // The extension host tracks the 12-continuation cap and sends buildPaused if hit.
           if (/\[CONTINUING/i.test(textForCheck)) {
             dispatch({ type: 'SET_CORE_BUILDING', active: true })
+            dispatch({ type: 'WAITING_FOR_RESPONSE' })
             postMessage({ type: 'continue' })
           } else {
             dispatch({ type: 'SET_CORE_BUILDING', active: false })
@@ -522,6 +558,7 @@ export default function App() {
     }
 
     dispatch({ type: 'SEND_MESSAGE' })
+    dispatch({ type: 'WAITING_FOR_RESPONSE' })
     postMessage({
       type: 'chat',
       message: messageToSend,
@@ -865,7 +902,14 @@ export default function App() {
                 )}
               </div>
               {state.isCoreBuilding && !state.buildPaused && (
-                <div className="core-building-banner">Building... auto-continuing</div>
+                <div className="core-building-banner">Building... auto-continuing ({elapsedSecs}s)</div>
+              )}
+              {!state.isCoreBuilding && (state.streaming || state.waitingForResponse) && (
+                <div className="core-building-banner">
+                  {state.waitingForResponse && !state.streaming
+                    ? `Waiting for response… (${elapsedSecs}s)`
+                    : `Working… (${elapsedSecs}s)`}
+                </div>
               )}
               {state.buildPaused && (
                 <div className="core-building-banner core-paused">

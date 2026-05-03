@@ -62,6 +62,7 @@ export interface InitialState {
   ledger: SessionCost
   vaultEntries: VaultEntry[]
   providers: ProviderInfo[]
+  streaming?: boolean
 }
 
 export type ExtensionMessage =

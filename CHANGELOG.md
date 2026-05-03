@@ -2,10 +2,44 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: b114f72a0afe8f1581d19c098ad8b2cb230276f2 -->
+<!-- LAST_PACKAGED_COMMIT: 639b7490631e25678bf292f6d5b14e7c2adf994d -->
 <!-- CHANGES -->
 
+## [0.1.36] - 2026-05-03
+
+### Fixed
+- **Stream stall detection**: 90-second watchdog timer on all three stream paths (handleChat, runAgentLoop, handleContinue). If no data arrives from the provider for 90s, the AbortController fires and a clear error is posted — prevents silent indefinite hangs when providers drop the connection mid-generation.
+- **Active-file disruption during streaming**: `notifyActiveFile()` now suppresses `activeFileChanged` posts while a stream is in progress. Both `handleChat` and `handleContinue` re-emit the current file once streaming ends. Switching files in the editor mid-task no longer risks disrupting the running stream.
+- **Webview reload mid-task**: `sendInitialState()` now includes `streaming: this.streaming` in the posted state. The `INITIALIZED` reducer restores the `streaming` flag and sets `waitingForResponse` if a stream is in progress — so a webview reload no longer drops the in-progress UI state.
+- **DeepSeek V4 Pro pricing**: corrected from `$0.27/$1.10` (old V3 price) to `$0.435/$0.87` per 1M input/output tokens. Session cost was displaying ~5× too low.
+- **"Saved vs. Copilot Pro" removed from Ledger**: the comparison was producing nonsensical values with no relationship to actual session spend.
+
+### Added
+- **Live elapsed timer**: "Waiting for response… (Xs)" / "Working… (Xs)" / "Building… auto-continuing (Xs)" banner that ticks every second while any stream is in progress — from send through final token.
+- **Planner Q&A Domain 5.5 — Visual Design & UX**: non-optional for any project with a user interface. Covers theme, aesthetic direction, layout priority, accessibility, and brand assets. An explicit fallback prompt fires if the user hasn't addressed visual design by the time Technical Foundation is settled. Blueprint format updated with matching `## Visual Design & UX` section.
+
+---
+
 ## [0.1.35] - 2026-05-03
+
+### Context
+Live testing with DeepSeek V4 Pro via OpenRouter revealed two hard failures: (1) the agent loop had zero retry logic — a single HTTP 429 from an upstream provider killed the entire loop immediately, burning ~$0.03 in context tokens per failed attempt with no recovery; (2) there was no visible feedback between message send and first token, leaving users staring at an ambiguous blinking cursor with no indication of whether the model was working or dead. Fixed both.
+
+### `src/sidebar.ts`
+- Imported `RouterError` from `./router`.
+- `runAgentLoop()`: `routeRequest()` call wrapped in a `for (attempt 0..3)` retry loop. On `RouterError` with `statusCode === 429` and attempt < 3, posts a visible `_⏳ Provider rate limit — retrying in Xs (attempt N/3)…_` `streamChunk` message, waits `(attempt+1) * 8` seconds, then retries. Any other error or exhausted retries re-throws immediately.
+- `handleChat()` catch block: added `HTTP 429 / rate` branch before the existing 402 branch — surfaces a human-readable message explaining the upstream provider is rate-limited, that it's an OpenRouter infrastructure issue, and to wait or switch models.
+
+### `webview/src/components/MessageList.tsx`
+- Added `connecting-indicator` block inside the streaming assistant bubble: rendered when `streaming && !streamingText && !streamingThinking && toolProgressItems.length === 0` — i.e. request is in flight but no output has arrived yet. Shows animated dots + "Connecting to provider…" text.
+
+### `webview/src/App.css`
+- Added `.connecting-indicator`, `.connecting-dots::before`, `@keyframes connecting-pulse` styles — dots animate through opacity 1→0.4→0.7→1 at 1.2s cycle.
+
+### Commit Bullets
+- fix: runAgentLoop retries up to 3× on HTTP 429 with 8/16/24s backoff; posts visible retry status in chat
+- fix: handleChat surfaces friendly 429 error message after all retries exhausted
+- feat: "Connecting to provider…" animated indicator while waiting for first token
 
 ---
 

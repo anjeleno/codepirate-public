@@ -26,12 +26,6 @@ export function Ledger({ ledger, provider, creditBalance, estimatedCost }: Props
         <span>Session cost</span>
         <span>${ledger.costUsd.toFixed(4)}</span>
       </div>
-      {ledger.savedVsCopilot > 0 && (
-        <div className="ledger-row ledger-saved">
-          <span>Saved vs. Copilot Pro</span>
-          <span>~${ledger.savedVsCopilot.toFixed(2)}</span>
-        </div>
-      )}
       {provider === 'openrouter' && typeof creditBalance === 'number' && creditBalance >= 0 && (
         <div className="ledger-row" style={{ borderTop: '1px solid var(--vscode-panel-border)', marginTop: 2, paddingTop: 2 }}>
           <span>OR balance</span>

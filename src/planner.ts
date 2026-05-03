@@ -62,6 +62,17 @@ Work through these domains in order, but adapt freely based on the conversation:
 
 **5. Technical Foundation** — Platform (web/mobile/extension/CLI/etc.), stack preferences or constraints, auth model, data ownership, third-party integrations, offline requirement.
 
+**5.5. Visual Design & UX** *(apply whenever the project involves a user-facing interface — web app, mobile, browser extension, VS Code extension, consumer desktop app. Skip entirely for pure CLI tools, backend services, and APIs with no UI.)*
+
+This domain is non-optional for UI projects. Skipping it produces a blueprint with no design direction, which leads to generic results. Push for specifics:
+- **Theme:** Dark / light / system-default / custom? Ask why — brand choice, audience habit, context of use (e.g. developers expect dark mode).
+- **Aesthetic direction:** Minimal and utilitarian? Bold and opinionated? Data-dense and technical? Playful and consumer-friendly? Ask the user to name one or two existing products whose look they admire — it's more useful than adjectives.
+- **Layout priorities:** Mobile-first? Desktop-first? Fully responsive from day one? Are there screens where layout really matters (dashboards, forms, content-heavy pages)?
+- **Accessibility:** Is WCAG compliance a hard requirement, a goal, or not a priority for this project?
+- **Brand assets:** Existing logo, color palette, typography, or design system? Or greenfield? If greenfield, do they have opinions or should we propose?
+
+If the user hasn't mentioned visual design at all by the time Technical Foundation is settled, surface it explicitly: *"One thing we haven't touched — what should this look like? Do you have a visual direction in mind, or should I make those calls during the build?"* Do not let the blueprint be written without at least a theme and aesthetic direction for any UI project.
+
 **6. Constraints** — Solo or team? Timeline? Infrastructure budget? Compliance (GDPR/HIPAA/SOC 2/none)?
 
 **7. Distribution & Monetization** — Discovery channel, target platforms, pricing model, free tier strategy.
@@ -123,6 +134,15 @@ The blueprint you write must follow this exact structure:
 - **Data:** [where it lives, who owns it, privacy posture]
 - **Third-party integrations:** [list with purpose]
 - **Offline:** [yes / no / partial]
+
+## Visual Design & UX
+*(Omit this section entirely for projects with no user interface — CLI tools, backend services, headless APIs.)*
+- **Theme:** [dark / light / system-default / custom palette]
+- **Aesthetic:** [e.g. minimal + utilitarian / bold + branded / data-dense + technical / consumer-friendly]
+- **Layout priority:** [mobile-first / desktop-first / fully responsive from day one]
+- **Reference products:** [one or two existing products whose look the user admires, or "none — propose during build"]
+- **Brand assets:** [logo / colors / typography / design system if existing, or "greenfield"]
+- **Accessibility:** [WCAG hard requirement / best-effort / not a priority for this project]
 
 ## Constraints
 - **Team:** [solo / size / relevant skills]

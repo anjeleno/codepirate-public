@@ -180,8 +180,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
     })
 
-    // Track the active editor and notify the webview on every change
+    // Track the active editor and notify the webview on every change.
+    // Suppressed during streaming to prevent mid-task UI updates that could
+    // confuse the user or (if the webview re-initialises) appear to reset state.
+    // The current file is re-sent once streaming ends.
     const notifyActiveFile = () => {
+      if (this.streaming) return
       const doc = vscode.window.activeTextEditor?.document
       const name = doc?.fileName ? path.basename(doc.fileName) : null
       this.post({ type: 'activeFileChanged', name })
@@ -491,19 +495,27 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const response = await routeRequest(config, options)
       dbg(`OR response: status=${response.status} x-model=${response.headers.get('x-model') ?? 'n/a'} x-request-id=${response.headers.get('x-request-id') ?? 'n/a'}`)
 
-      for await (const event of parseStream(response, config.provider)) {
-        if (event.type === 'text') {
-          fullResponse += event.chunk
-          this.post({ type: 'streamChunk', text: event.chunk })
-        } else if (event.type === 'thinking') {
-          fullThinking += event.chunk
-          this.post({ type: 'thinkingChunk', text: event.chunk })
-        } else if (event.type === 'model') {
-          dbg(`OR actual model used: ${event.id}`)
-        } else if (event.type === 'usage' && !isLocal(config.provider)) {
-          const sessionCost = this.ledger.record(event.usage, model)
-          this.post({ type: 'ledgerUpdate', ledger: sessionCost })
+      const watchdog = this.startStreamWatchdog()
+      try {
+        for await (const event of parseStream(response, config.provider)) {
+          if (event.type === 'text') {
+            watchdog.bump()
+            fullResponse += event.chunk
+            this.post({ type: 'streamChunk', text: event.chunk })
+          } else if (event.type === 'thinking') {
+            watchdog.bump()
+            fullThinking += event.chunk
+            this.post({ type: 'thinkingChunk', text: event.chunk })
+          } else if (event.type === 'model') {
+            dbg(`OR actual model used: ${event.id}`)
+          } else if (event.type === 'usage' && !isLocal(config.provider)) {
+            watchdog.bump()
+            const sessionCost = this.ledger.record(event.usage, model)
+            this.post({ type: 'ledgerUpdate', ledger: sessionCost })
+          }
         }
+      } finally {
+        watchdog.stop()
       }
 
       this.conversationHistory.push({ role: 'assistant', content: fullResponse })
@@ -543,6 +555,9 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     } finally {
       this.streaming = false
       this.post({ type: 'streamEnd', thinking: fullThinking || undefined })
+      // Re-send the current active file — suppressed during streaming, now safe to update
+      const activeDoc = vscode.window.activeTextEditor?.document
+      this.post({ type: 'activeFileChanged', name: activeDoc ? path.basename(activeDoc.fileName) : null })
     }
   }
 
@@ -591,21 +606,30 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       let fullText = ''
       const pendingToolCalls: ToolCall[] = []
 
-      for await (const event of parseStream(response, config.provider)) {
-        if (event.type === 'text') {
-          fullText += event.chunk
-          this.post({ type: 'streamChunk', text: event.chunk })
-        } else if (event.type === 'thinking') {
-          this.post({ type: 'thinkingChunk', text: event.chunk })
-        } else if (event.type === 'model') {
-          dbg(`agent loop actual model: ${event.id}`)
-        } else if (event.type === 'tool_call') {
-          pendingToolCalls.push(event.call)
-          this.post({ type: 'toolProgress', toolName: event.call.name, args: event.call.args, status: 'running', result: '' })
-        } else if (event.type === 'usage' && !isLocal(config.provider)) {
-          const sessionCost = this.ledger.record(event.usage, config.model)
-          this.post({ type: 'ledgerUpdate', ledger: sessionCost })
+      const roundWatchdog = this.startStreamWatchdog()
+      try {
+        for await (const event of parseStream(response, config.provider)) {
+          if (event.type === 'text') {
+            roundWatchdog.bump()
+            fullText += event.chunk
+            this.post({ type: 'streamChunk', text: event.chunk })
+          } else if (event.type === 'thinking') {
+            roundWatchdog.bump()
+            this.post({ type: 'thinkingChunk', text: event.chunk })
+          } else if (event.type === 'model') {
+            dbg(`agent loop actual model: ${event.id}`)
+          } else if (event.type === 'tool_call') {
+            roundWatchdog.bump()
+            pendingToolCalls.push(event.call)
+            this.post({ type: 'toolProgress', toolName: event.call.name, args: event.call.args, status: 'running', result: '' })
+          } else if (event.type === 'usage' && !isLocal(config.provider)) {
+            roundWatchdog.bump()
+            const sessionCost = this.ledger.record(event.usage, config.model)
+            this.post({ type: 'ledgerUpdate', ledger: sessionCost })
+          }
         }
+      } finally {
+        roundWatchdog.stop()
       }
 
       if (pendingToolCalls.length === 0) {
@@ -742,17 +766,25 @@ Don't worry about framing it perfectly — just tell me what's in your head righ
 
       const response = await routeRequest(this.lastCoreRouterConfig, options)
 
-      for await (const event of parseStream(response, this.lastCoreRouterConfig.provider)) {
-        if (event.type === 'text') {
-          fullResponse += event.chunk
-          this.post({ type: 'streamChunk', text: event.chunk })
-        } else if (event.type === 'thinking') {
-          fullThinking += event.chunk
-          this.post({ type: 'thinkingChunk', text: event.chunk })
-        } else if (event.type === 'usage' && !isLocal(this.lastCoreRouterConfig.provider)) {
-          const sessionCost = this.ledger.record(event.usage, this.lastCoreRouterConfig.model)
-          this.post({ type: 'ledgerUpdate', ledger: sessionCost })
+      const contWatchdog = this.startStreamWatchdog()
+      try {
+        for await (const event of parseStream(response, this.lastCoreRouterConfig.provider)) {
+          if (event.type === 'text') {
+            contWatchdog.bump()
+            fullResponse += event.chunk
+            this.post({ type: 'streamChunk', text: event.chunk })
+          } else if (event.type === 'thinking') {
+            contWatchdog.bump()
+            fullThinking += event.chunk
+            this.post({ type: 'thinkingChunk', text: event.chunk })
+          } else if (event.type === 'usage' && !isLocal(this.lastCoreRouterConfig.provider)) {
+            contWatchdog.bump()
+            const sessionCost = this.ledger.record(event.usage, this.lastCoreRouterConfig.model)
+            this.post({ type: 'ledgerUpdate', ledger: sessionCost })
+          }
         }
+      } finally {
+        contWatchdog.stop()
       }
 
       // Add the continuation response to main history (not buffer) so it's
@@ -773,7 +805,32 @@ Don't worry about framing it perfectly — just tell me what's in your head righ
     } finally {
       this.streaming = false
       this.post({ type: 'streamEnd', thinking: fullThinking || undefined })
+      const activeDocFinal = vscode.window.activeTextEditor?.document
+      this.post({ type: 'activeFileChanged', name: activeDocFinal ? path.basename(activeDocFinal.fileName) : null })
     }
+  }
+
+  // ─── Stream stall watchdog ────────────────────────────────────────────────
+  // Returns { bump, stop }. Call bump() every time a chunk arrives to reset the
+  // timer. Call stop() when the stream ends normally. If bump() is not called for
+  // timeoutMs, the AbortController is fired and a visible error is posted so the
+  // user knows the provider dropped the connection silently rather than waiting
+  // indefinitely with no feedback.
+  private startStreamWatchdog(timeoutMs = 90_000): { bump: () => void; stop: () => void } {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const bump = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => {
+        this.abortController?.abort()
+        this.post({
+          type: 'streamError',
+          error: `Stream stalled — no data from provider for ${Math.round(timeoutMs / 1000)}s. The provider likely dropped the connection silently. Try again; if it keeps happening, switch to a different model or provider.`,
+        })
+      }, timeoutMs)
+    }
+    const stop = () => { if (timer) clearTimeout(timer) }
+    bump() // start the clock immediately
+    return { bump, stop }
   }
 
   private async sendInitialState(): Promise<void> {
@@ -798,6 +855,7 @@ Don't worry about framing it perfectly — just tell me what's in your head righ
         ledger: this.ledger.getSessionCost(),
         vaultEntries: this.vaultManager.getEntries(),
         providers: allProviders,
+        streaming: this.streaming,  // preserve in-progress state if webview reloads mid-stream
       },
     })
     this._initialized = true
