@@ -1,14 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ChatMessage } from '../types'
+import type { ToolProgressItem } from '../App'
 
 interface Props {
   messages: ChatMessage[]
   streamingText: string
   streamingThinking: string
   streaming: boolean
+  toolProgressItems?: ToolProgressItem[]
 }
 
-export function MessageList({ messages, streamingText, streamingThinking, streaming }: Props) {
+export function MessageList({ messages, streamingText, streamingThinking, streaming, toolProgressItems = [] }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -42,6 +44,14 @@ export function MessageList({ messages, streamingText, streamingThinking, stream
           <div className="message-label">Lead Architect</div>
           {streamingThinking && (
             <ThinkingShade thinking={streamingThinking} isStreaming={streaming} defaultOpen />
+          )}
+          {/* Tool call progress — shows "Editing src/foo.ts…" / "Read src/bar.ts" inline */}
+          {toolProgressItems.length > 0 && (
+            <div className="tool-progress-list">
+              {toolProgressItems.map(item => (
+                <ToolProgressLine key={item.id} item={item} />
+              ))}
+            </div>
           )}
           <div className="message-content">
             <RenderMarkdown text={streamingText} />
@@ -162,5 +172,51 @@ function TextWithInlineCode({ text }: { text: string }) {
         return <span key={i}>{part}</span>
       })}
     </>
+  )
+}
+
+// ─── Tool progress line ───────────────────────────────────────────────────────
+// Compact one-liner shown in the streaming area for each tool call.
+// Mimics Copilot's "Edited diff.ts +50-14" display style.
+
+function ToolProgressLine({ item }: { item: ToolProgressItem }) {
+  const filePath = (item.args.path as string) ?? (item.args.file_path as string) ?? ''
+  const fileName = filePath ? filePath.split('/').pop() : item.toolName
+
+  let icon: string
+  let label: string
+
+  if (item.status === 'running') {
+    switch (item.toolName) {
+      case 'read_file':  icon = '📖'; label = `Reading ${fileName}…`;  break
+      case 'list_dir':   icon = '📂'; label = `Listing ${fileName || 'directory'}…`; break
+      case 'write_file': icon = '✏️';  label = `Writing ${fileName}…`; break
+      case 'str_replace':icon = '✏️';  label = `Editing ${fileName}…`; break
+      case 'insert_at_line': icon = '✏️'; label = `Inserting into ${fileName}…`; break
+      default:           icon = '⚙️';  label = `${item.toolName}…`;    break
+    }
+  } else if (item.status === 'done') {
+    switch (item.toolName) {
+      case 'read_file':  icon = '✓'; label = `Read ${fileName}`;  break
+      case 'list_dir':   icon = '✓'; label = `Listed ${fileName || 'directory'}`; break
+      case 'write_file': icon = '✓'; label = `Wrote ${fileName}`; break
+      case 'str_replace':icon = '✓'; label = `Edited ${fileName}`; break
+      case 'insert_at_line': icon = '✓'; label = `Inserted into ${fileName}`; break
+      default:           icon = '✓'; label = item.toolName; break
+    }
+  } else {
+    icon = '✗'
+    label = `Failed: ${fileName || item.toolName}`
+  }
+
+  const statusClass = item.status === 'running' ? 'tool-progress-running'
+    : item.status === 'done' ? 'tool-progress-done'
+    : 'tool-progress-error'
+
+  return (
+    <div className={`tool-progress-item ${statusClass}`} title={item.result || undefined}>
+      <span className="tool-progress-icon">{icon}</span>
+      <span className="tool-progress-label">{label}</span>
+    </div>
   )
 }

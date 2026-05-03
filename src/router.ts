@@ -116,7 +116,18 @@ function buildOpenAIRequest(
 
   const allMessages = [
     { role: 'system', content: systemPrompt },
-    ...messages.map((m) => ({ role: m.role, content: m.content })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ...messages.map((m): Record<string, any> => {
+      // Tool result messages — include tool_call_id for the model to correlate
+      if (m.role === 'tool') {
+        return { role: 'tool', tool_call_id: m.toolCallId ?? '', content: m.content }
+      }
+      // Assistant messages that include tool calls (from a previous agent round)
+      if (m.toolCalls) {
+        return { role: 'assistant', content: m.content, tool_calls: m.toolCalls }
+      }
+      return { role: m.role, content: m.content }
+    }),
   ]
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -125,6 +136,16 @@ function buildOpenAIRequest(
     messages: allMessages,
     max_tokens: maxTokens,
     stream: options.stream,
+  }
+
+  // Include tool definitions when the caller supplies them.
+  // 'auto' lets the model decide whether to call a tool or respond directly.
+  if (options.tools && options.tools.length > 0) {
+    body['tools'] = options.tools.map(t => ({
+      type: 'function',
+      function: { name: t.name, description: t.description, parameters: t.parameters },
+    }))
+    body['tool_choice'] = 'auto'
   }
 
   // Request usage in the final streaming chunk (OpenAI-compat spec).
@@ -247,6 +268,10 @@ export async function* parseStream(
   const usage: UsageInfo = { inputTokens: 0, outputTokens: 0 }
   let reportedModel: string | null = null
 
+  // Accumulates tool_call argument deltas keyed by index.
+  // Yielded as complete tool_call events after the stream loop ends.
+  const toolCallBuffer = new Map<number, { id: string; name: string; argStr: string }>()
+
   try {
     while (true) {
       const { done, value } = await reader.read()
@@ -263,8 +288,7 @@ export async function* parseStream(
         if (isAnthropic) {
           yield* parseAnthropicLine(trimmed, usage)
         } else {
-          for (const event of parseOpenAILine(trimmed, usage)) {
-            // Capture the first model ID reported by the provider (e.g. OpenRouter)
+          for (const event of parseOpenAILine(trimmed, usage, toolCallBuffer)) {
             if (event.type === 'model' && reportedModel === null) {
               reportedModel = event.id
             }
@@ -277,10 +301,27 @@ export async function* parseStream(
     reader.releaseLock()
   }
 
+  // Yield completed tool calls (arguments fully accumulated from streaming deltas).
+  // Sorted by index so multi-call responses execute in the order the model emitted them.
+  const sortedCalls = [...toolCallBuffer.entries()].sort(([a], [b]) => a - b)
+  for (const [, acc] of sortedCalls) {
+    if (!acc.name) continue
+    try {
+      const args = JSON.parse(acc.argStr || '{}') as Record<string, unknown>
+      yield { type: 'tool_call', call: { id: acc.id, name: acc.name, args } }
+    } catch {
+      // Malformed JSON in tool call arguments — model produced invalid output, skip
+    }
+  }
+
   yield { type: 'usage', usage }
 }
 
-function* parseOpenAILine(line: string, usage: UsageInfo): Generator<StreamYield> {
+function* parseOpenAILine(
+  line: string,
+  usage: UsageInfo,
+  toolCallBuffer: Map<number, { id: string; name: string; argStr: string }>,
+): Generator<StreamYield> {
   if (!line.startsWith('data: ')) return
   const data = line.slice(6).trim()
   if (data === '[DONE]') return
@@ -295,6 +336,22 @@ function* parseOpenAILine(line: string, usage: UsageInfo): Generator<StreamYield
     if (typeof delta === 'string' && delta.length > 0) {
       yield { type: 'text', chunk: delta }
     }
+    // Accumulate tool_call argument deltas streamed as partial JSON strings
+    const toolCallDeltas = parsed?.choices?.[0]?.delta?.tool_calls
+    if (Array.isArray(toolCallDeltas)) {
+      for (const tc of toolCallDeltas) {
+        const idx: number = tc.index ?? 0
+        if (!toolCallBuffer.has(idx)) {
+          toolCallBuffer.set(idx, { id: '', name: '', argStr: '' })
+        }
+        const acc = toolCallBuffer.get(idx)!
+        // id and name arrive on the first delta for each call index
+        if (tc.id) acc.id = tc.id
+        if (tc.function?.name) acc.name = tc.function.name
+        if (typeof tc.function?.arguments === 'string') acc.argStr += tc.function.arguments
+      }
+    }
+
     // Capture usage from final chunk
     if (parsed?.usage) {
       usage.inputTokens = parsed.usage.prompt_tokens ?? 0

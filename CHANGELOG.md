@@ -2,8 +2,54 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: d6fa4c0d41a65b695c81de2f3f69bdde853597d6 -->
+<!-- LAST_PACKAGED_COMMIT: 1a9be0f9a910f9c69aafe2cdb09b4e8e14b3edaf -->
 <!-- CHANGES -->
+
+## [0.1.32] - 2026-05-03
+
+### Added
+- **Tool-calling agent loop (v1.4)** — CORE persona on tool-capable providers (OpenRouter, Groq, Together, Mistral, Gemini, Custom) now uses the OpenAI function-calling standard instead of SEARCH/REPLACE markdown parsing. Model receives 5 tool schemas (`read_file`, `write_file`, `str_replace`, `insert_at_line`, `list_dir`), responds with structured `tool_calls` deltas, extension executes each via `vscode.workspace.WorkspaceEdit` (native undo/redo, SSH Remote safe), loops up to 20 rounds
+- `src/tools.ts` — new module: `AGENT_TOOLS` (5 tool definitions), `executeTool()` dispatcher, exported `resolvePath()` (single canonical path resolver, now imported by `diff.ts`)
+- **Right-click smart actions** — "Code Pirate: Explain" and "Code Pirate: Fix" in editor right-click context menu when text is selected; wired to CORE agent loop
+- **Tool progress UI** — real-time webview indicators during agent loop execution: "📖 Reading…", "✏️ Editing…", "✓ Read", "✓ Edited", "✗ Failed" per tool call
+- `ChatMessage` extended with `role: 'tool'`, `toolCalls?`, `toolCallId?` fields
+- `ToolDefinition`, `ToolCall` types; `RequestOptions.tools`; `StreamYield` `tool_call` variant
+- `supportsToolCalling(provider)` helper in `sidebar.ts` — gates agent loop to providers that support the OpenAI function-calling schema
+- `sendSelectionExplain()` / `sendSelectionFix()` public methods on `SidebarProvider` for right-click command wiring
+
+### Fixed
+- **Agent loop routing bug** — condition was `persona !== 'snippet'` which incorrectly sent the Diff Agent persona through the tool-calling loop (conflicting with its SEARCH/REPLACE system prompt); corrected to `persona === 'core'`
+
+### Changed
+- `src/diff.ts` — marked deprecated with header comment block; `resolvePath()` removed from this file (now imported from `tools.ts`); `os` import removed; all functionality retained for anthropic-direct + local provider fallback path and `handleContinue()` continuation loop
+- `src/personas.ts` — CORE `FILE OUTPUT FORMAT` section rewritten: tool calls are primary for tool-capable providers; SEARCH/REPLACE explicitly labelled as fallback for Anthropic Direct and local models
+- Blueprint (`docs/00-CODE-PIRATE.md`) — Section 1 structure updated (tools.ts added, diff.ts deprecated); Section 5 (Diff & Apply) completely rewritten for two-path architecture; Section 13 (Gap Analysis) updated to May 3 2026 with right-click and agentic editing moved to ✅ parity-achieved
+
+---
+
+## [0.1.31] - 2026-05-03
+
+### Added
+- Insert-after line format
+
+### Fixed
+- Expand ~ paths to home dir in diff engine
+
+---
+
+## [0.1.30] - 2026-05-03
+
+### Fixed
+- Preview new files without 'file could not be found'
+
+### Changed
+- Use empty temp baseline when original doesn't exist on disk
+
+---
+
+## [0.1.29] - 2026-05-03
+
+---
 
 ## [0.1.28] - 2026-05-03
 

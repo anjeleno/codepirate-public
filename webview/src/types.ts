@@ -83,6 +83,9 @@ export type ExtensionMessage =
   | { type: 'workspaceTokens'; tokens: number }
   | { type: 'buildPaused' }
   | { type: 'error'; message: string }
+  // Emitted for each tool call during the agent loop — drives the real-time
+  // progress display in the chat ("Editing src/foo.ts…", "Read src/bar.ts")
+  | { type: 'toolProgress'; toolName: string; args: Record<string, unknown>; status: 'running' | 'done' | 'error'; result: string }
 
 // ─── Webview → Extension messages ─────────────────────────────────────────────
 

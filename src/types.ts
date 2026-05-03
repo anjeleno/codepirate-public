@@ -16,8 +16,16 @@ export type Persona = 'core' | 'diff' | 'snippet'
 export type ThinkingBudget = 'off' | 'medium' | 'high' | 'max'
 
 export interface ChatMessage {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'tool'
   content: string
+  // Present on assistant messages that include tool calls (agent loop)
+  toolCalls?: Array<{
+    id: string
+    type: 'function'
+    function: { name: string; arguments: string }
+  }>
+  // Present on tool result messages (role === 'tool')
+  toolCallId?: string
 }
 
 export interface RouterConfig {
@@ -27,6 +35,24 @@ export interface RouterConfig {
   apiEndpoint?: string // only used when provider === 'custom'
 }
 
+// ─── Tool-calling types ───────────────────────────────────────────────────────
+
+/** JSON Schema object describing one tool the model may call. */
+export interface ToolDefinition {
+  name: string
+  description: string
+  parameters: Record<string, unknown>
+}
+
+/** A fully-parsed, ready-to-execute tool invocation from the model. */
+export interface ToolCall {
+  id: string
+  name: string
+  args: Record<string, unknown>
+}
+
+// ─── Request / stream types ───────────────────────────────────────────────────
+
 export interface RequestOptions {
   messages: ChatMessage[]
   systemPrompt: string
@@ -34,6 +60,7 @@ export interface RequestOptions {
   thinkingBudget?: ThinkingBudget
   stream: boolean
   signal?: AbortSignal
+  tools?: ToolDefinition[]   // when set, enables tool-calling on supported providers
 }
 
 export type StreamYield =
@@ -41,6 +68,7 @@ export type StreamYield =
   | { type: 'thinking'; chunk: string }
   | { type: 'usage'; usage: UsageInfo }
   | { type: 'model'; id: string }
+  | { type: 'tool_call'; call: ToolCall }  // yielded after stream ends if model called tools
 
 export interface UsageInfo {
   inputTokens: number
@@ -49,8 +77,9 @@ export interface UsageInfo {
 
 export interface FileChange {
   path: string
-  content: string       // full file content (new files) OR replacement text (search/replace)
-  search?: string       // if set: find this exact text and replace with content
+  content: string         // full file content (new files) OR replacement/inserted text
+  search?: string         // if set: find this exact text and replace with content
+  insertAfterLine?: number // if set: insert content after this 1-based line number (no search needed)
   originalContent?: string
 }
 

@@ -51,6 +51,14 @@ interface DiffState {
   files: string[]
 }
 
+export interface ToolProgressItem {
+  id: string
+  toolName: string
+  args: Record<string, unknown>
+  status: 'running' | 'done' | 'error'
+  result: string
+}
+
 interface AppState {
   initialized: boolean
   messages: ChatMessage[]
@@ -79,6 +87,7 @@ interface AppState {
   attachedFiles: Array<{ path: string; name: string }>
   isCoreBuilding: boolean
   buildPaused: boolean
+  toolProgressItems: ToolProgressItem[]
 }
 
 const emptyLedger: SessionCost = {
@@ -117,6 +126,7 @@ const initialState: AppState = {
   attachedFiles: [],
   isCoreBuilding: false,
   buildPaused: false,
+  toolProgressItems: [],
 }
 
 type Action =
@@ -153,6 +163,7 @@ type Action =
   | { type: 'REMOVE_ATTACHED_FILE'; path: string }
   | { type: 'SET_CORE_BUILDING'; active: boolean }
   | { type: 'BUILD_PAUSED' }
+  | { type: 'TOOL_PROGRESS'; toolName: string; args: Record<string, unknown>; status: 'running' | 'done' | 'error'; result: string }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -191,6 +202,7 @@ function reducer(state: AppState, action: Action): AppState {
         streaming: false,
         streamingText: '',
         streamingThinking: '',
+        toolProgressItems: [],
         messages: state.streamingText
           ? [...state.messages, assistantMsg]
           : state.messages,
@@ -314,6 +326,30 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'BUILD_PAUSED':
       return { ...state, isCoreBuilding: false, buildPaused: true }
+
+    case 'TOOL_PROGRESS': {
+      // Update existing item (same toolName + running→done/error) or append new
+      const incoming = action
+      const existing = state.toolProgressItems.findIndex(
+        i => i.toolName === incoming.toolName && i.status === 'running'
+      )
+      let updated: ToolProgressItem[]
+      if (incoming.status !== 'running' && existing !== -1) {
+        // Transition from running → done/error
+        updated = state.toolProgressItems.map((item, idx) =>
+          idx === existing
+            ? { ...item, status: incoming.status, result: incoming.result }
+            : item
+        )
+      } else {
+        // New tool call starting
+        updated = [
+          ...state.toolProgressItems,
+          { id: Date.now().toString(), toolName: incoming.toolName, args: incoming.args, status: incoming.status, result: incoming.result },
+        ]
+      }
+      return { ...state, toolProgressItems: updated }
+    }
 
     default:
       return state
@@ -445,6 +481,9 @@ export default function App() {
           break
         case 'error':
           dispatch({ type: 'STREAM_ERROR', error: msg.message })
+          break
+        case 'toolProgress':
+          dispatch({ type: 'TOOL_PROGRESS', toolName: msg.toolName, args: msg.args, status: msg.status, result: msg.result })
           break
       }
     }
@@ -693,6 +732,7 @@ export default function App() {
               streamingText={state.streamingText}
               streamingThinking={state.streamingThinking}
               streaming={state.streaming}
+              toolProgressItems={state.toolProgressItems}
             />
 
             {/* Copy toolbar — visible when there are messages */}

@@ -98,6 +98,28 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand('codePirate.acceptInlineEdit', () => acceptInlineEdit()),
     vscode.commands.registerCommand('codePirate.discardInlineEdit', () => discardInlineEdit()),
 
+    // ─── Right-click smart actions ────────────────────────────────────────
+    // Sends the active selection to the sidebar CORE agent loop.
+    // Opens the sidebar first so the user sees the response.
+
+    vscode.commands.registerCommand('codePirate.explainSelection', async () => {
+      const editor = vscode.window.activeTextEditor
+      if (!editor) return
+      const text = editor.document.getText(editor.selection)
+      if (!text.trim()) return
+      await vscode.commands.executeCommand('workbench.view.extension.code-pirate-sidebar')
+      await sidebarProvider.sendSelectionExplain(text)
+    }),
+
+    vscode.commands.registerCommand('codePirate.fixSelection', async () => {
+      const editor = vscode.window.activeTextEditor
+      if (!editor) return
+      const text = editor.document.getText(editor.selection)
+      if (!text.trim()) return
+      await vscode.commands.executeCommand('workbench.view.extension.code-pirate-sidebar')
+      await sidebarProvider.sendSelectionFix(text)
+    }),
+
     vscode.commands.registerCommand('codePirate.inlineChat', () =>
       runInlineChat(async () => {
         const apiKey = await secrets.get('codePirate.apiKey')

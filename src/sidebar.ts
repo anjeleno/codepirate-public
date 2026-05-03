@@ -11,6 +11,7 @@ import { VaultManager } from './vault'
 import { SnapshotCache } from './cache'
 import { LicenseManager } from './license/licenseManager'
 import { detectPhase, phaseToThinkingBudget, phaseToMaxTokens } from './phaseDetector'
+import { AGENT_TOOLS, executeTool } from './tools'
 import type {
   RouterConfig,
   Provider,
@@ -19,6 +20,7 @@ import type {
   ChatMessage,
   SessionCost,
   RequestOptions,
+  ToolCall,
 } from './types'
 import type { VaultEntry } from './types'
 
@@ -66,6 +68,9 @@ type ExtensionMessage =
   | { type: 'activeFileChanged'; name: string | null }
   | { type: 'error'; message: string }
   | { type: 'buildPaused' }
+  // Emitted for each tool call during an agentic loop — drives the real-time
+  // "Editing src/foo.ts" progress display in the webview.
+  | { type: 'toolProgress'; toolName: string; args: Record<string, unknown>; status: 'running' | 'done' | 'error'; result: string }
 
 interface ModelInfo {
   id: string
@@ -339,6 +344,15 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  /**
+   * Returns true for providers that support OpenAI function-calling (tool use).
+   * - anthropic-direct: different schema, not yet adapted — falls back to diff.ts parsing
+   * - ollama / lmstudio: tool support is model-dependent; too fragile to enable by default
+   */
+  private supportsToolCalling(provider: Provider): boolean {
+    return !['anthropic-direct', 'ollama', 'lmstudio'].includes(provider)
+  }
+
   private async handleChat(
     userMessage: string,
     persona: Persona,
@@ -444,6 +458,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         this.lastCoreThinkingBudget = options.thinkingBudget ?? 'off'
       }
 
+      // ── Route: agent loop (tool-calling) vs. legacy text stream ──────────
+      // Only the CORE persona runs the structured tool-calling agent loop.
+      // 'diff' persona uses SEARCH/REPLACE text format — routing it through the
+      // agent loop would conflict with its system prompt. 'snippet' never needs
+      // file edits. Both fall through to the legacy text-streaming path.
+      // Providers without tool-calling support also fall through (diff.ts fallback).
+      if (persona === 'core' && this.supportsToolCalling(config.provider)) {
+        await this.runAgentLoop(config, options)
+        // runAgentLoop pushes to conversationHistory internally — nothing more to do
+        return
+      }
+
       const response = await routeRequest(config, options)
       dbg(`OR response: status=${response.status} x-model=${response.headers.get('x-model') ?? 'n/a'} x-request-id=${response.headers.get('x-request-id') ?? 'n/a'}`)
 
@@ -498,6 +524,115 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       this.streaming = false
       this.post({ type: 'streamEnd', thinking: fullThinking || undefined })
     }
+  }
+
+  // ─── Tool-calling agent loop ───────────────────────────────────────────────
+  // Runs for CORE persona on providers that support OpenAI function-calling.
+  // The model calls tools (read_file, write_file, str_replace, etc.) which the
+  // extension executes via vscode.workspace.applyEdit.  Loop terminates when
+  // the model responds with no tool calls (task complete) or the 20-round cap.
+  //
+  // Called from handleChat() — streaming bookkeeping (this.streaming = true,
+  // streamEnd, error handling) is managed by the caller's try/finally.
+
+  private async runAgentLoop(
+    config: RouterConfig,
+    baseOptions: RequestOptions,
+  ): Promise<void> {
+    const MAX_TOOL_ROUNDS = 20
+    // One snapshot per file per agent run — preserves the pre-AI original
+    const snapshotted = new Set<string>()
+    const messages = [...baseOptions.messages]
+    let round = 0
+
+    while (round < MAX_TOOL_ROUNDS) {
+      round++
+      const options: RequestOptions = { ...baseOptions, messages, tools: AGENT_TOOLS }
+      const response = await routeRequest(config, options)
+      dbg(`agent loop round=${round} status=${response.status}`)
+
+      let fullText = ''
+      const pendingToolCalls: ToolCall[] = []
+
+      for await (const event of parseStream(response, config.provider)) {
+        if (event.type === 'text') {
+          fullText += event.chunk
+          this.post({ type: 'streamChunk', text: event.chunk })
+        } else if (event.type === 'thinking') {
+          this.post({ type: 'thinkingChunk', text: event.chunk })
+        } else if (event.type === 'model') {
+          dbg(`agent loop actual model: ${event.id}`)
+        } else if (event.type === 'tool_call') {
+          pendingToolCalls.push(event.call)
+          this.post({ type: 'toolProgress', toolName: event.call.name, args: event.call.args, status: 'running', result: '' })
+        } else if (event.type === 'usage' && !isLocal(config.provider)) {
+          const sessionCost = this.ledger.record(event.usage, config.model)
+          this.post({ type: 'ledgerUpdate', ledger: sessionCost })
+        }
+      }
+
+      if (pendingToolCalls.length === 0) {
+        // Model produced no tool calls — task is complete
+        if (fullText) {
+          this.conversationHistory.push({ role: 'assistant', content: fullText })
+        }
+        break
+      }
+
+      // Build the assistant message with tool_calls for the next round
+      const assistantToolCallsPayload = pendingToolCalls.map(tc => ({
+        id: tc.id,
+        type: 'function' as const,
+        function: { name: tc.name, arguments: JSON.stringify(tc.args) },
+      }))
+      messages.push({ role: 'assistant', content: fullText, toolCalls: assistantToolCallsPayload })
+
+      // Execute each tool call and push results into messages
+      for (const call of pendingToolCalls) {
+        let result: string
+        try {
+          result = await executeTool(call, this.snapshotCache, snapshotted)
+          // Truncate the echoed result so the UI tooltip stays readable
+          const preview = result.length > 300 ? result.slice(0, 300) + '…' : result
+          this.post({ type: 'toolProgress', toolName: call.name, args: call.args, status: 'done', result: preview })
+        } catch (err) {
+          result = `ERROR: ${err instanceof Error ? err.message : String(err)}`
+          this.post({ type: 'toolProgress', toolName: call.name, args: call.args, status: 'error', result })
+        }
+        messages.push({ role: 'tool', content: result, toolCallId: call.id })
+      }
+    }
+
+    if (round >= MAX_TOOL_ROUNDS) {
+      this.post({
+        type: 'streamError',
+        error: 'Agent safety cap reached (20 tool rounds). The task may be incomplete — review what was done and continue manually if needed.',
+      })
+    }
+  }
+
+  // ─── Right-click smart actions ─────────────────────────────────────────────
+  // Called by extension.ts when the user selects "Code Pirate: Explain" or
+  // "Code Pirate: Fix" from the editor context menu.
+
+  async sendSelectionExplain(text: string): Promise<void> {
+    await this.handleMessage({
+      type: 'chat',
+      message: `Explain the following code:\n\`\`\`\n${text}\n\`\`\``,
+      persona: 'core',
+      thinkingBudget: 'off',
+      includeWorkspace: false,
+    })
+  }
+
+  async sendSelectionFix(text: string): Promise<void> {
+    await this.handleMessage({
+      type: 'chat',
+      message: `Review and fix any bugs, errors, or issues in the following code:\n\`\`\`\n${text}\n\`\`\``,
+      persona: 'core',
+      thinkingBudget: 'off',
+      includeWorkspace: false,
+    })
   }
 
   // ─── CORE autonomous continuation ─────────────────────────────────────────

@@ -756,6 +756,53 @@ input:focus, textarea:focus, select:focus {
   line-height: 1.5;
 }
 
+/* ─── Tool call progress display ────────────────────────────────────────────── */
+
+.tool-progress-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.tool-progress-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  opacity: 0.85;
+}
+
+.tool-progress-icon {
+  font-size: 10px;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+}
+
+.tool-progress-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-progress-running {
+  color: var(--vscode-progressBar-background, #0e70c0);
+  background: rgba(14, 112, 192, 0.08);
+}
+
+.tool-progress-done {
+  color: var(--vscode-gitDecoration-addedResourceForeground, #73c991);
+  opacity: 0.7;
+}
+
+.tool-progress-error {
+  color: var(--vscode-errorForeground, #f44747);
+}
+
 .core-building-banner {
   display: flex;
   align-items: center;

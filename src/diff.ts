@@ -1,16 +1,35 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// DEPRECATED — Legacy markdown-parsing diff engine
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// This module is the FALLBACK file-editing path for:
+//   • anthropic-direct (uses a different tool schema, not yet adapted)
+//   • ollama / lmstudio (tool support is model-dependent; too fragile for v1)
+//
+// For all other providers (openrouter, groq, together, mistral, gemini, custom)
+// Code Pirate now uses structured tool calling via src/tools.ts + the agent
+// loop in sidebar.ts.  The model calls read_file / str_replace / write_file
+// directly as JSON function calls; the extension executes them via
+// vscode.workspace.applyEdit (WorkspaceEdit) instead of fs.writeFile.
+//
+// DO NOT DELETE this file.  It is still required for the fallback path.
+// DO NOT add new features here.  All new file-editing work goes into tools.ts.
+// ─────────────────────────────────────────────────────────────────────────────
+
 import * as vscode from 'vscode'
 import * as fs from 'fs/promises'
-import * as os from 'os'
 import * as path from 'path'
 import { SnapshotCache } from './cache'
+import { resolvePath } from './tools'
 import type { FileChange } from './types'
 
 // ─── File block parser ────────────────────────────────────────────────────────
 // Detects code blocks with file paths from AI response text.
-// Supports three path annotation formats:
+// Supports four path annotation formats:
 //   1. First-line comment: // path: src/foo.ts   or   # path: src/foo.ts
 //   2. Language tag with path: ```typescript:src/foo.ts
 //   3. Bold text immediately before block: **src/foo.ts**
+//   4. insert-after directive: // insert-after: 21  (inserts after line 21, 1-based)
 //
 // Within a block, if <<<<<<< SEARCH markers are found, the block is treated as
 // one or more SEARCH/REPLACE hunks (targeted edits). Otherwise it's a full
@@ -19,6 +38,7 @@ import type { FileChange } from './types'
 const CODE_BLOCK_RE =
   /```(?:([\w.-]+)(?::([^\n`]+))?)?\n([\s\S]*?)```/g
 const PATH_COMMENT_RE = /^(?:\/\/|#)\s*(?:path:|file:)?\s*([^\s]+\.[a-zA-Z]+)/
+const INSERT_AFTER_RE = /^(?:\/\/|#)\s*insert-after:\s*(\d+)/i
 
 // Matches one SEARCH/REPLACE hunk within a code block
 const HUNK_RE = /<<<<<<< SEARCH\r?\n([\s\S]*?)\r?\n?=======\r?\n([\s\S]*?)\r?\n?>>>>>>> REPLACE/g
@@ -75,6 +95,15 @@ export function parseFileChanges(responseText: string): FileChange[] {
     let content = blockContent
     if (PATH_COMMENT_RE.test(content.split('\n')[0])) {
       content = content.split('\n').slice(1).join('\n')
+    }
+
+    // Check for insert-after directive on the first remaining content line
+    const insertMatch = INSERT_AFTER_RE.exec(content.split('\n')[0])
+    if (insertMatch) {
+      const lineNum = parseInt(insertMatch[1], 10)
+      const insertContent = content.split('\n').slice(1).join('\n')
+      changes.push({ path: filePath, content: insertContent, insertAfterLine: lineNum })
+      continue
     }
 
     // Ignore obviously non-file blocks (too short, shell/text languages)
@@ -143,7 +172,7 @@ export class DiffManager {
     const byPath = new Map<string, FileChange[]>()
 
     for (const change of this.pendingChanges) {
-      const abs = path.isAbsolute(change.path) ? change.path : path.join(root, change.path)
+      const abs = resolvePath(change.path, root)
       if (!byPath.has(abs)) {
         order.push(abs)
         byPath.set(abs, [])
@@ -157,7 +186,7 @@ export class DiffManager {
 
       // Compute proposed content
       let proposed: string
-      const fullChange = [...changes].reverse().find(c => c.search === undefined)
+      const fullChange = [...changes].reverse().find(c => c.search === undefined && c.insertAfterLine === undefined)
 
       if (fullChange) {
         proposed = fullChange.content
@@ -168,7 +197,14 @@ export class DiffManager {
           proposed = ''
         }
         for (const change of changes) {
-          if (proposed.includes(change.search!)) {
+          if (change.insertAfterLine !== undefined) {
+            // Line-number based insertion — split content into lines before splicing
+            // to avoid double-newlines at the boundary when content is multi-line.
+            const lines = proposed.split('\n')
+            const insertAt = Math.min(change.insertAfterLine, lines.length)
+            lines.splice(insertAt, 0, ...change.content.split('\n'))
+            proposed = lines.join('\n')
+          } else if (proposed.includes(change.search!)) {
             proposed = proposed.replace(change.search!, change.content)
           } else {
             // SEARCH text didn't match — inject a visible marker so the diff
@@ -179,7 +215,7 @@ export class DiffManager {
         }
       }
 
-      // Write to OS temp dir — doesn't pollute the workspace
+      // Write proposed content to OS temp dir — doesn't pollute the workspace
       const tmpPath = path.join(
         os.tmpdir(),
         `cp-proposed-${Date.now()}-${path.basename(abs)}`,
@@ -187,9 +223,25 @@ export class DiffManager {
       await fs.writeFile(tmpPath, proposed, 'utf-8')
       this.tempProposedFiles.push(tmpPath)
 
+      // For new files (original doesn't exist on disk), write an empty temp file
+      // as the left side of the diff. Using a non-existent URI on the left causes
+      // VS Code to throw "the editor could not be opened because the file could
+      // not be found" — even on SSH Remote where the error is especially opaque.
+      let leftUri: vscode.Uri
+      try {
+        await fs.access(abs)
+        leftUri = currentUri
+      } catch {
+        // File doesn't exist yet — use an empty temp file as the baseline
+        const emptyPath = path.join(os.tmpdir(), `cp-empty-${Date.now()}-${path.basename(abs)}`)
+        await fs.writeFile(emptyPath, '', 'utf-8')
+        this.tempProposedFiles.push(emptyPath)
+        leftUri = vscode.Uri.file(emptyPath)
+      }
+
       await vscode.commands.executeCommand(
         'vscode.diff',
-        currentUri,
+        leftUri,
         vscode.Uri.file(tmpPath),
         `Code Pirate ↔ ${path.basename(abs)}`,
       )
@@ -212,7 +264,7 @@ export class DiffManager {
     const byPath = new Map<string, { relPath: string; changes: FileChange[] }>()
 
     for (const change of this.pendingChanges) {
-      const abs = path.isAbsolute(change.path) ? change.path : path.join(root, change.path)
+      const abs = resolvePath(change.path, root)
       if (!byPath.has(abs)) {
         order.push(abs)
         byPath.set(abs, { relPath: change.path, changes: [] })
@@ -228,7 +280,7 @@ export class DiffManager {
         // Snapshot before modifying (enables undo)
         await this.snapshotCache.take(uri)
 
-        const fullChange = [...changes].reverse().find(c => c.search === undefined)
+        const fullChange = [...changes].reverse().find(c => c.search === undefined && c.insertAfterLine === undefined)
 
         if (fullChange) {
           // Full file replacement
@@ -236,7 +288,7 @@ export class DiffManager {
           await fs.writeFile(abs, fullChange.content, 'utf-8')
           applied.push(relPath)
         } else {
-          // Search/replace hunks — apply sequentially
+          // Search/replace hunks and/or insert-after directives — apply sequentially
           let content: string
           try {
             content = await fs.readFile(abs, 'utf-8')
@@ -247,13 +299,21 @@ export class DiffManager {
 
           let ok = true
           for (const change of changes) {
-            if (!content.includes(change.search!)) {
-              const preview = change.search!.split('\n')[0].slice(0, 80)
-              failed.push(`${relPath}: SEARCH text not found in file — first line was: "${preview}"`)
-              ok = false
-              break
+            if (change.insertAfterLine !== undefined) {
+              // Line-number based insertion — split into lines before splicing.
+              const lines = content.split('\n')
+              const insertAt = Math.min(change.insertAfterLine, lines.length)
+              lines.splice(insertAt, 0, ...change.content.split('\n'))
+              content = lines.join('\n')
+            } else {
+              if (!content.includes(change.search!)) {
+                const preview = change.search!.split('\n')[0].slice(0, 80)
+                failed.push(`${relPath}: SEARCH text not found in file — first line was: "${preview}"`)
+                ok = false
+                break
+              }
+              content = content.replace(change.search!, change.content)
             }
-            content = content.replace(change.search!, change.content)
           }
 
           if (ok) {
