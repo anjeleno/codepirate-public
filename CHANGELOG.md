@@ -2,18 +2,39 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: 13a67ec75072197520357657363f1f0e98e99aed -->
+<!-- LAST_PACKAGED_COMMIT: d6fa4c0d41a65b695c81de2f3f69bdde853597d6 -->
 <!-- CHANGES -->
+
+## [0.1.28] - 2026-05-03
+
+### Fixed
+- Silent SEARCH/REPLACE mismatch
+
+### Changed
+- Show visible marker in preview, surface apply failures in chat, keep banner on failure
+
+---
+
+## [0.1.27] - 2026-05-03
+
+### Fixed
+- CORE file-editing protocol
+
+### Changed
+- Bump to v0.1.26
+- Restore pre-send cost estimate; fix CORE file-editing protocol; add reasoning mode table
+- Replace broken markdown-header format with diff.ts-compatible formats; add SEARCH/REPLACE syntax; add reasoning mode table
+
+---
 
 ## [0.1.26] - 2026-05-03
 
 ### Fixed
-- Restore pre-send cost estimate
+- **Pre-send cost estimate restored** — OpenRouter returns versioned model slugs (e.g. `deepseek/deepseek-v4-pro-20260423`) that never matched the unversioned default model ID. Added prefix-match fallback in the `estimatedCost` memo. Added `openrouter` static pricing table in `ProviderSelector.tsx` (DeepSeek V4-Pro: $0.00108/1k in, $0.00555/1k out) so the estimate shows even before the OR models fetch completes.
+- **CORE file-editing protocol** — `## MULTI-FILE OUTPUT FORMAT` in the CORE persona described a `### path/to/file.ts` markdown-header format that `diff.ts` never parses. File edits were being ignored and output was pasted into chat instead. Replaced with `## FILE OUTPUT FORMAT` documenting the three formats the apply engine actually reads. Added SEARCH/REPLACE syntax with example.
 
-### Changed
-- OR returns versioned model slugs, add prefix-match fallback and openrouter static pricing
-- Bump to v0.1.25
-- CORE persona, phase detection, continuation loop
+### Added
+- **Reasoning mode quick-reference table** in CORE persona — collapses per-mode reasoning instructions into one scannable lookup table (Non-think / Think High / Think Max by task type)
 
 ---
 

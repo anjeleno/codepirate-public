@@ -267,6 +267,19 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       case 'applyDiff': {
         const result = await this.diffManager.applyChanges()
         this.post({ type: 'diffApplied', applied: result.applied, failed: result.failed })
+        if (result.failed.length > 0) {
+          // Surface failed hunks as a visible error in the chat window.
+          // Users should see exactly what failed rather than watching the banner
+          // silently disappear with nothing written to disk.
+          const lines = result.failed.map(f => `• ${f}`).join('\n')
+          const appliedNote = result.applied.length > 0
+            ? `\n\n${result.applied.length} file(s) applied successfully: ${result.applied.join(', ')}`
+            : ''
+          this.post({
+            type: 'streamError',
+            error: `Diff apply failed for ${result.failed.length} file(s):\n${lines}${appliedNote}\n\nThe SEARCH text must match the file exactly — including whitespace and indentation. Ask CORE to re-read the file and produce a corrected SEARCH/REPLACE block.`,
+          })
+        }
         break
       }
 

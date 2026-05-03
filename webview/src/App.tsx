@@ -213,7 +213,9 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, pendingDiff: { count: action.count, files: action.files } }
 
     case 'DIFF_APPLIED':
-      return { ...state, pendingDiff: null }
+      // Keep the banner visible if any hunks failed so the user can retry or dismiss manually.
+      // The error detail is shown as a streamError chat message from the extension host.
+      return { ...state, pendingDiff: action.failed.length > 0 ? state.pendingDiff : null }
 
     case 'API_KEY_SET':
       return { ...state, hasApiKey: action.hasKey }

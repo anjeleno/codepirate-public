@@ -168,7 +168,14 @@ export class DiffManager {
           proposed = ''
         }
         for (const change of changes) {
-          proposed = proposed.replace(change.search!, change.content)
+          if (proposed.includes(change.search!)) {
+            proposed = proposed.replace(change.search!, change.content)
+          } else {
+            // SEARCH text didn't match — inject a visible marker so the diff
+            // view shows a red line rather than silently displaying no changes.
+            const preview = change.search!.split('\n')[0].slice(0, 80)
+            proposed = `// [Code Pirate] SEARCH NOT MATCHED — expected to find:\n// ${preview}\n\n` + proposed
+          }
         }
       }
 
@@ -241,7 +248,8 @@ export class DiffManager {
           let ok = true
           for (const change of changes) {
             if (!content.includes(change.search!)) {
-              failed.push(`${relPath}: search text not found`)
+              const preview = change.search!.split('\n')[0].slice(0, 80)
+              failed.push(`${relPath}: SEARCH text not found in file — first line was: "${preview}"`)
               ok = false
               break
             }
