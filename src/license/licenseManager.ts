@@ -89,6 +89,11 @@ export class LicenseManager {
     return this.status.tier === 'pro'
   }
 
+  canUsePlanner(): boolean {
+    // TODO: remove dev bypass when licensing is wired up
+    return true
+  }
+
   getStatus(): LicenseStatus {
     return this.status
   }

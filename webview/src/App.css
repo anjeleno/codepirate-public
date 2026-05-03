@@ -803,6 +803,31 @@ input:focus, textarea:focus, select:focus {
   color: var(--vscode-errorForeground, #f44747);
 }
 
+/* "Connecting to provider…" — shown while waiting for first token */
+.connecting-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  opacity: 0.55;
+  padding: 4px 0 8px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.connecting-dots::before {
+  content: '●●●';
+  letter-spacing: 2px;
+  animation: connecting-pulse 1.2s steps(3, end) infinite;
+}
+
+@keyframes connecting-pulse {
+  0%   { opacity: 1; }
+  33%  { opacity: 0.4; }
+  66%  { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+
 .core-building-banner {
   display: flex;
   align-items: center;

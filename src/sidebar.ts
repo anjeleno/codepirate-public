@@ -2,7 +2,7 @@ import * as vscode from 'vscode'
 import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
-import { routeRequest, parseStream, PROVIDER_PRESETS, isLocal } from './router'
+import { routeRequest, parseStream, PROVIDER_PRESETS, isLocal, RouterError } from './router'
 import { buildRequestOptions } from './context'
 import { WorkspaceIndexer } from './indexer'
 import { parseFileChanges, DiffManager } from './diff'
@@ -12,6 +12,7 @@ import { SnapshotCache } from './cache'
 import { LicenseManager } from './license/licenseManager'
 import { detectPhase, phaseToThinkingBudget, phaseToMaxTokens } from './phaseDetector'
 import { AGENT_TOOLS, executeTool } from './tools'
+import { hasBlueprintReadySentinel, onBlueprintWritten } from './planner'
 import type {
   RouterConfig,
   Provider,
@@ -132,6 +133,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private lastCoreRouterConfig: RouterConfig | null = null
   private lastCoreMaxTokens = 8192
   private lastCoreThinkingBudget: ThinkingBudget = 'off'
+
+  // Planner session state — when true, routes all messages through the
+  // planner persona + CORE agent loop regardless of the user's persona setting.
+  // Reset to false after blueprint synthesis completes.
+  private plannerActive = false
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -377,20 +383,28 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
 
     dbg(`handleChat: provider=${config.provider} model=${config.model} hasKey=${!!config.apiKey}`)
 
-    // Phase detection for CORE persona — overrides the user-selected thinkingBudget
-    // with the phase-computed value and sets the appropriate maxTokens.
+    // If a planner session is active, override persona to 'planner' regardless
+    // of the user's current persona setting.  The user's setting is preserved —
+    // this flag just bypasses it until synthesis completes.
+    const wasPlannerSession = this.plannerActive
+    if (this.plannerActive) {
+      persona = 'planner'
+    }
+
+    // Phase detection for CORE and planner personas — overrides the user-selected
+    // thinkingBudget with the phase-computed value and sets the appropriate maxTokens.
     // Non-CORE personas skip this entirely.
     let effectiveThinkingBudget = thinkingBudget
     let effectiveMaxTokens: number | undefined
     let detectedPhase = undefined
-    if (persona === 'core') {
+    if (persona === 'core' || persona === 'planner') {
       detectedPhase = detectPhase(userMessage)
       effectiveThinkingBudget = phaseToThinkingBudget(detectedPhase)
       const phaseTokens = phaseToMaxTokens(detectedPhase)
       const vsConfig = vscode.workspace.getConfiguration('codePirate')
       const userCap = vsConfig.get<number>('maxTokens')
       effectiveMaxTokens = userCap ? Math.min(phaseTokens, userCap) : phaseTokens
-      // Reset continuation state on each new CORE message
+      // Reset continuation state on each new CORE/planner message
       this.continuationBuffer = []
       this.continuationCount = 0
     }
@@ -459,14 +473,18 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
 
       // ── Route: agent loop (tool-calling) vs. legacy text stream ──────────
-      // Only the CORE persona runs the structured tool-calling agent loop.
+      // CORE and planner personas run the structured tool-calling agent loop.
       // 'diff' persona uses SEARCH/REPLACE text format — routing it through the
       // agent loop would conflict with its system prompt. 'snippet' never needs
       // file edits. Both fall through to the legacy text-streaming path.
       // Providers without tool-calling support also fall through (diff.ts fallback).
-      if (persona === 'core' && this.supportsToolCalling(config.provider)) {
-        await this.runAgentLoop(config, options)
-        // runAgentLoop pushes to conversationHistory internally — nothing more to do
+      if ((persona === 'core' || persona === 'planner') && this.supportsToolCalling(config.provider)) {
+        const { sentinelSeen } = await this.runAgentLoop(config, options)
+        if (wasPlannerSession && sentinelSeen) {
+          await onBlueprintWritten()
+          this.plannerActive = false
+          this.post({ type: 'streamChunk', text: '\n\n---\n\nYour blueprint is live at `blueprint.md`. CORE will reference it automatically in future sessions. You can edit it any time \u2014 it\'s just markdown.' })
+        }
         return
       }
 
@@ -511,6 +529,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         let msg: string
         if (raw === 'terminated' || raw.includes('terminated') || raw === 'fetch failed') {
           msg = 'Connection dropped — the provider closed the stream unexpectedly. This can happen with very long responses. Try again, or switch to a faster/smaller model.'
+        } else if (raw.includes('HTTP 429') || (raw.includes('429') && raw.includes('rate'))) {
+          msg = 'All retry attempts failed — the upstream provider for this model is still rate-limited. This is an OpenRouter infrastructure issue, not a Code Pirate bug. Wait a minute or two and try again, or switch to a different model temporarily.'
         } else if (raw.includes('HTTP 402') || raw.includes('402')) {
           msg = 'Out of OpenRouter credits. Top up at openrouter.ai/settings/credits, then try again. Tip: set a spending limit on your key to prevent surprises.'
         } else {
@@ -538,17 +558,34 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private async runAgentLoop(
     config: RouterConfig,
     baseOptions: RequestOptions,
-  ): Promise<void> {
+  ): Promise<{ sentinelSeen: boolean }> {
     const MAX_TOOL_ROUNDS = 20
     // One snapshot per file per agent run — preserves the pre-AI original
     const snapshotted = new Set<string>()
     const messages = [...baseOptions.messages]
     let round = 0
+    let sentinelSeen = false
 
     while (round < MAX_TOOL_ROUNDS) {
       round++
       const options: RequestOptions = { ...baseOptions, messages, tools: AGENT_TOOLS }
-      const response = await routeRequest(config, options)
+      // Retry up to 3 times on HTTP 429 — upstream providers can be transiently
+      // rate-limited. Post a visible status message so the user knows we're waiting.
+      let response!: Response
+      for (let attempt = 0; attempt <= 3; attempt++) {
+        try {
+          response = await routeRequest(config, options)
+          break
+        } catch (err) {
+          if (err instanceof RouterError && err.statusCode === 429 && attempt < 3) {
+            const waitSec = (attempt + 1) * 8
+            this.post({ type: 'streamChunk', text: `\n\n_⏳ Provider rate limit — retrying in ${waitSec}s (attempt ${attempt + 1}/3)…_\n\n` })
+            await new Promise(r => setTimeout(r, waitSec * 1_000))
+            continue
+          }
+          throw err
+        }
+      }
       dbg(`agent loop round=${round} status=${response.status}`)
 
       let fullText = ''
@@ -577,6 +614,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           this.conversationHistory.push({ role: 'assistant', content: fullText })
         }
         break
+      }
+
+      // Track blueprint ready sentinel for planner sessions
+      if (!sentinelSeen && hasBlueprintReadySentinel(fullText)) {
+        sentinelSeen = true
       }
 
       // Build the assistant message with tool_calls for the next round
@@ -609,6 +651,28 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         error: 'Agent safety cap reached (20 tool rounds). The task may be incomplete — review what was done and continue manually if needed.',
       })
     }
+
+    return { sentinelSeen }
+  }
+
+  // ─── Project Planner ───────────────────────────────────────────────────────
+  // Called by the `codePirate.planProject` command after the premium gate check.
+  // Sets plannerActive=true and posts the opening message as an assistant turn
+  // in the sidebar chat so the user sees it immediately and can respond.
+
+  public startPlannerSession(): void {
+    this.plannerActive = true
+    const opening = `Welcome to **Code Pirate Project Planner**.
+
+I'm going to ask you a series of questions to understand your project — what you're building, who it's for, what matters most for your MVP, and what can wait. Take your time with each answer. The better the conversation, the more useful the blueprint.
+
+Let's start with the most important question:
+
+**What are you building, and what problem does it solve?**
+
+Don't worry about framing it perfectly — just tell me what's in your head right now.`
+    this.post({ type: 'streamChunk', text: opening })
+    this.post({ type: 'streamEnd' })
   }
 
   // ─── Right-click smart actions ─────────────────────────────────────────────

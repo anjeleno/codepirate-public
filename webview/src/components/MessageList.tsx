@@ -53,6 +53,13 @@ export function MessageList({ messages, streamingText, streamingThinking, stream
               ))}
             </div>
           )}
+          {/* "Connecting…" shown while waiting for the first token */}
+          {streaming && !streamingText && !streamingThinking && toolProgressItems.length === 0 && (
+            <div className="connecting-indicator">
+              <span className="connecting-dots" />
+              Connecting to provider…
+            </div>
+          )}
           <div className="message-content">
             <RenderMarkdown text={streamingText} />
             {streaming && !streamingThinking && <span className="streaming-cursor" />}

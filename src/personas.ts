@@ -1,5 +1,6 @@
 import type { Persona } from './types'
 import type { Phase } from './phaseDetector'
+import { PLANNER_SYSTEM_PROMPT } from './planner'
 
 // ─── Reasoning mode directives for DeepSeek V4-Pro ───────────────────────────
 // Natural language strings that activate V4-Pro's built-in reasoning modes.
@@ -279,7 +280,11 @@ Calibrate explanation depth to the phrasing of the request. Concise senior-to-se
 
 ## FINAL PRINCIPLE
 
-The user is a professional. Treat them as one. They do not need hand-holding, they need a peer who is smarter than them in this domain and communicates without waste. Depth on demand — concise by default, thorough when asked. Be that.`,
+The user is a professional. Treat them as one. They do not need hand-holding, they need a peer who is smarter than them in this domain and communicates without waste. Depth on demand — concise by default, thorough when asked. Be that.
+
+## PROJECT BLUEPRINT
+
+If a file named \`blueprint.md\` exists in the workspace root, it is the authoritative project contract — the single source of truth for what this project is, who it's for, what MVP scope is, and what was deliberately deferred. Read it before making architectural or feature decisions. Do not contradict it without explicitly flagging the conflict to the user and asking how to resolve it. If \`blueprint.md\` does not exist in this workspace, disregard this instruction entirely.`,
   },
 
   diff: {
@@ -330,6 +335,13 @@ Rules:
 5. If the request is ambiguous, make a reasonable assumption and note it in a single line after the code block
 
 Start your response with the opening code fence.`,
+  },
+
+  planner: {
+    id: 'planner',
+    label: 'Project Planner',
+    description: 'Q&A-driven project planning — produces blueprint.md',
+    systemPrompt: PLANNER_SYSTEM_PROMPT,
   },
 }
 

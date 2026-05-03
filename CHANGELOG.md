@@ -2,8 +2,34 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: 1a9be0f9a910f9c69aafe2cdb09b4e8e14b3edaf -->
+<!-- LAST_PACKAGED_COMMIT: b114f72a0afe8f1581d19c098ad8b2cb230276f2 -->
 <!-- CHANGES -->
+
+## [0.1.35] - 2026-05-03
+
+---
+
+## [0.1.34] - 2026-05-03
+
+### Added
+- Q&A Project Planner
+
+### Changed
+- Planner.ts, plannerActive routing, blueprint context injection, Pro gate
+
+---
+
+## [0.1.33] - 2026-05-03
+
+### Changed
+- feat: Q&A Project Planner — new planner.ts, 'planner' persona, plannerActive routing
+- feat: blueprint.md context injection into CORE with threshold-based summary fallback
+- feat: conditional PROJECT BLUEPRINT instruction added to CORE system prompt
+- feat: mergeRulesSection() in rules.ts for post-synthesis .projectrules update
+- feat: canUsePlanner() Pro gate on LicenseManager
+- feat: codePirate.planProject command registered in extension.ts + package.json
+
+---
 
 ## [0.1.32] - 2026-05-03
 

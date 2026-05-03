@@ -149,3 +149,27 @@ export async function runProjectRulesWizard(): Promise<void> {
   await vscode.window.showTextDocument(doc)
   vscode.window.showInformationMessage('Code Pirate: .projectrules created ✓')
 }
+
+/**
+ * Appends a stack & conventions section to .projectrules, as written by the
+ * Project Planner after a planning session.  Creates the file if it doesn't
+ * exist.  Busts the rules cache after writing.
+ */
+export async function mergeRulesSection(content: string): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders
+  if (!folders || folders.length === 0) return
+
+  const rulesPath = path.join(folders[0].uri.fsPath, '.projectrules')
+  const date = new Date().toISOString().split('T')[0]
+  const section = `\n\n## Stack & Conventions (from Project Planner — ${date})\n${content}`
+
+  let existing = ''
+  try {
+    existing = await fs.readFile(rulesPath, 'utf-8')
+  } catch {
+    // File doesn't exist — will create
+  }
+
+  await fs.writeFile(rulesPath, existing + section, 'utf-8')
+  bustCache()
+}

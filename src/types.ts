@@ -11,7 +11,7 @@ export type Provider =
   | 'gemini'
   | 'custom'
 
-export type Persona = 'core' | 'diff' | 'snippet'
+export type Persona = 'core' | 'diff' | 'snippet' | 'planner'
 
 export type ThinkingBudget = 'off' | 'medium' | 'high' | 'max'
 

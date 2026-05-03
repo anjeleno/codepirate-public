@@ -165,6 +165,19 @@ export function activate(context: vscode.ExtensionContext): void {
       runProjectRulesWizard(),
     ),
 
+    vscode.commands.registerCommand('codePirate.planProject', async () => {
+      await vscode.commands.executeCommand('workbench.view.extension.code-pirate-sidebar')
+      if (!licenseManager.canUsePlanner()) {
+        sidebarProvider.post({
+          type: 'streamChunk',
+          text: 'The Project Planner is a Code Pirate Pro feature. Start your free trial or upgrade at https://codepirate.cc/pro',
+        })
+        sidebarProvider.post({ type: 'streamEnd' })
+        return
+      }
+      sidebarProvider.startPlannerSession()
+    }),
+
     vscode.commands.registerCommand('codePirate.activateLicense', async () => {
       const key = await vscode.window.showInputBox({
         prompt: 'Enter your Code Pirate Pro license key',
