@@ -342,6 +342,45 @@ input:focus, textarea:focus, select:focus {
   border-color: transparent;
 }
 
+/* ─── Chat context menu (right-click) ───────────────────────────────────── */
+
+.message-list-wrap {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat-context-menu {
+  position: fixed;
+  z-index: 1000;
+  background: var(--vscode-menu-background, var(--vscode-editor-background));
+  border: 1px solid var(--vscode-menu-border, var(--vscode-panel-border));
+  border-radius: 3px;
+  padding: 2px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  min-width: 160px;
+}
+
+.chat-context-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--vscode-menu-foreground, var(--vscode-editor-foreground));
+  border: none;
+  border-radius: 0;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.chat-context-item:hover {
+  background: var(--vscode-menu-selectionBackground, var(--vscode-list-hoverBackground));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-editor-foreground));
+}
+
 /* ─── Chat toolbar ─────────────────────────────────────────────────────────── */
 
 .chat-toolbar {
@@ -673,8 +712,21 @@ input:focus, textarea:focus, select:focus {
   color: var(--vscode-inputValidation-errorForeground);
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
   flex-shrink: 0;
+  gap: 6px;
+}
+
+.error-bar > span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.error-bar > .btn-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 .section-title {

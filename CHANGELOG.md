@@ -2,8 +2,33 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: 639b7490631e25678bf292f6d5b14e7c2adf994d -->
+<!-- LAST_PACKAGED_COMMIT: cd54c620bb2e02815fa5100ccec75d85d8583c91 -->
 <!-- CHANGES -->
+
+## [0.1.38] - 2026-05-03
+
+### Fixed
+- **Copy to clipboard broken in VS Code webviews**: `copyToClipboard()` now tries `navigator.clipboard.writeText()` first (the correct API for webview sandboxes), falling back silently to the legacy `execCommand` approach if rejected. The ⎘ Last and ⎘ All toolbar buttons now work.
+
+### Added
+- **Right-click copy context menu**: right-clicking anywhere in the chat area (when messages exist) shows a VS Code-styled floating context menu with two options — **Copy last exchange** (most recent user prompt + assistant reply) and **Copy all** (entire current thread). Menu auto-dismisses on any click or scroll. Styled with native VS Code menu tokens (`--vscode-menu-background`, `--vscode-menu-selectionBackground`, etc.).
+
+---
+
+## [0.1.37] - 2026-05-03
+
+### Fixed
+- **Critical — agent-loop edits not saved to disk**: `runAgentLoop()` applies file edits via `vscode.workspace.applyEdit()` (in-memory only). A new `try/finally` block now calls `vscode.workspace.save()` for every modified file before the loop exits — build/deploy scripts no longer pick up stale on-disk versions. Posts a `✓ N files saved: [list]` summary in chat.
+- **Chat history losing sessions on webview reload**: sessions were only persisted when the user explicitly clicked `+`. Current chat now auto-saves to `localStorage` on every message (`codePirate.currentSession` key) and restores on webview panel teardown/reload via a new `RESTORE_CURRENT` reducer action.
+- **502 provider errors not retried**: added 502 retry in the agent loop (up to 2× with 5s/10s back-off), matching the existing 429 retry pattern. Posts `⚠️ Provider error (502) — retrying…` in chat.
+- **Stream watchdog firing too early**: increased `startStreamWatchdog()` default timeout from 90s to 180s — 90s was too narrow for long CORE responses with slow-start rounds.
+- **Error bar X button unreachable on long errors**: `.error-bar` switched to `align-items: flex-start`; added `word-break: break-word` on the text span and `flex-shrink: 0` on the dismiss button — X is always visible regardless of error length.
+- **History tab icon unclear**: renamed from `🕐` emoji to the text label `History`, consistent with Chat / Vault / Settings.
+
+### Added
+- **OpenRouter sub-provider routing**: two new VS Code settings — `codePirate.openrouterIgnoreProviders` (array, e.g. `["Parasail"]`) and `codePirate.openrouterRequireProviders` (array, e.g. `["DeepInfra"]`). When set, injects OpenRouter's `provider: { ignore, order, allow_fallbacks: true }` routing object into requests, letting users avoid bad sub-providers or pin to preferred ones without switching models.
+
+---
 
 ## [0.1.36] - 2026-05-03
 

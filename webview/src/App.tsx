@@ -28,6 +28,7 @@ interface SavedSession {
 }
 
 const SESSIONS_KEY = 'codePirate.sessions'
+const CURRENT_SESSION_KEY = 'codePirate.currentSession'
 
 // ─── Slash commands ───────────────────────────────────────────────────────────
 
@@ -167,6 +168,7 @@ type Action =
   | { type: 'SET_CORE_BUILDING'; active: boolean }
   | { type: 'BUILD_PAUSED' }
   | { type: 'TOOL_PROGRESS'; toolName: string; args: Record<string, unknown>; status: 'running' | 'done' | 'error'; result: string }
+  | { type: 'RESTORE_CURRENT'; messages: ChatMessage[] }
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -282,6 +284,7 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, error: null }
 
     case 'CLEAR_HISTORY':
+      try { localStorage.removeItem(CURRENT_SESSION_KEY) } catch { /* ignore */ }
       return { ...state, messages: [], ledger: emptyLedger, pendingDiff: null, isCoreBuilding: false, buildPaused: false }
 
     case 'CREDIT_BALANCE':
@@ -294,6 +297,7 @@ function reducer(state: AppState, action: Action): AppState {
       const session: SavedSession = { id: Date.now().toString(), title, messages: state.messages, savedAt: Date.now() }
       const sessions = [session, ...state.savedSessions].slice(0, 50)
       try { localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions)) } catch { /* ignore */ }
+      try { localStorage.removeItem(CURRENT_SESSION_KEY) } catch { /* ignore */ }
       return { ...state, messages: [], streamingText: '', pendingDiff: null, ledger: emptyLedger, input: '', savedSessions: sessions, activeTab: 'chat' }
     }
 
@@ -317,6 +321,12 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'LOAD_SESSIONS':
       return { ...state, savedSessions: action.sessions }
+
+    case 'RESTORE_CURRENT':
+      // Restore the current session messages on webview mount (e.g. after VS Code reloads the panel).
+      // Only restores if the chat is currently empty to avoid stomping a live session.
+      if (state.messages.length > 0) return state
+      return { ...state, messages: action.messages }
 
     case 'WORKSPACE_TOKENS':
       return { ...state, workspaceTokens: action.tokens }
@@ -379,6 +389,7 @@ export default function App() {
   const resizeDragRef = useRef<{ startY: number; startH: number } | null>(null)
   const [elapsedSecs, setElapsedSecs] = useState(0)
   const streamStartRef = useRef<number | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
 
   // Elapsed timer — runs while waiting for first token or actively streaming.
   // Gives the user a live "Working… (42s)" indicator so they can tell whether
@@ -437,7 +448,23 @@ export default function App() {
         dispatch({ type: 'LOAD_SESSIONS', sessions })
       }
     } catch { /* ignore */ }
+    // Restore the current in-progress session if the webview was torn down mid-conversation
+    try {
+      const rawCurrent = localStorage.getItem(CURRENT_SESSION_KEY)
+      if (rawCurrent) {
+        const messages = JSON.parse(rawCurrent) as ChatMessage[]
+        if (Array.isArray(messages) && messages.length > 0) {
+          dispatch({ type: 'RESTORE_CURRENT', messages })
+        }
+      }
+    } catch { /* ignore */ }
   }, [])
+
+  // Auto-persist current messages so they survive webview panel reloads
+  useEffect(() => {
+    if (state.messages.length === 0) return
+    try { localStorage.setItem(CURRENT_SESSION_KEY, JSON.stringify(state.messages)) } catch { /* ignore */ }
+  }, [state.messages])
 
   // Receive messages from extension host
   useEffect(() => {
@@ -620,18 +647,35 @@ export default function App() {
     dispatch({ type: 'STREAM_END' })
   }
 
-  // VS Code webviews block navigator.clipboard — use execCommand via a hidden textarea
+  // Copy to clipboard — try navigator.clipboard first (works in VS Code webviews),
+  // fall back to the legacy execCommand approach.
   const copyToClipboard = useCallback((text: string) => {
-    try {
-      const el = document.createElement('textarea')
-      el.value = text
-      el.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none'
-      document.body.appendChild(el)
-      el.focus()
-      el.select()
-      document.execCommand('copy')
-      document.body.removeChild(el)
-    } catch { /* ignore */ }
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      navigator.clipboard.writeText(text).catch(() => {
+        // Fall back to execCommand if the async API rejects
+        try {
+          const el = document.createElement('textarea')
+          el.value = text
+          el.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none'
+          document.body.appendChild(el)
+          el.focus()
+          el.select()
+          document.execCommand('copy')
+          document.body.removeChild(el)
+        } catch { /* ignore */ }
+      })
+    } else {
+      try {
+        const el = document.createElement('textarea')
+        el.value = text
+        el.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none'
+        document.body.appendChild(el)
+        el.focus()
+        el.select()
+        document.execCommand('copy')
+        document.body.removeChild(el)
+      } catch { /* ignore */ }
+    }
   }, [])
 
   const copyLastExchange = useCallback(() => {
@@ -656,6 +700,24 @@ export default function App() {
     }).join('\n\n')
     copyToClipboard(text)
   }, [state.messages, copyToClipboard])
+
+  // Close the context menu on any click or scroll
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    window.addEventListener('click', close)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [contextMenu])
+
+  const handleChatContextMenu = useCallback((e: React.MouseEvent) => {
+    if (state.messages.length === 0) return
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY })
+  }, [state.messages.length])
 
   // When @workspace is toggled on, request an accurate token count from the
   // extension host.  When toggled off, reset so we stop adding workspace cost.
@@ -742,7 +804,7 @@ export default function App() {
             className={`tab ${state.activeTab === tab ? 'active' : ''}`}
             onClick={() => dispatch({ type: 'SET_TAB', tab })}
           >
-            {tab === 'chat' ? 'Chat' : tab === 'vault' ? 'Vault' : tab === 'settings' ? 'Settings' : '🕐'}
+            {tab === 'chat' ? 'Chat' : tab === 'vault' ? 'Vault' : tab === 'settings' ? 'Settings' : 'History'}
           </button>
         ))}
         <button
@@ -764,6 +826,7 @@ export default function App() {
       <div className="content">
         {state.activeTab === 'chat' && (
           <>
+            <div className="message-list-wrap" onContextMenu={handleChatContextMenu}>
             <MessageList
               messages={state.messages}
               streamingText={state.streamingText}
@@ -771,6 +834,29 @@ export default function App() {
               streaming={state.streaming}
               toolProgressItems={state.toolProgressItems}
             />
+            </div>
+
+            {/* Right-click context menu */}
+            {contextMenu && (
+              <div
+                className="chat-context-menu"
+                style={{ top: contextMenu.y, left: contextMenu.x }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  className="chat-context-item"
+                  onClick={() => { copyLastExchange(); setContextMenu(null) }}
+                >
+                  Copy last exchange
+                </button>
+                <button
+                  className="chat-context-item"
+                  onClick={() => { copyAll(); setContextMenu(null) }}
+                >
+                  Copy all
+                </button>
+              </div>
+            )}
 
             {/* Copy toolbar — visible when there are messages */}
             {state.messages.length > 0 && (

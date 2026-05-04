@@ -581,6 +581,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     let round = 0
     let sentinelSeen = false
 
+    try {
     while (round < MAX_TOOL_ROUNDS) {
       round++
       const options: RequestOptions = { ...baseOptions, messages, tools: AGENT_TOOLS }
@@ -595,6 +596,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
           if (err instanceof RouterError && err.statusCode === 429 && attempt < 3) {
             const waitSec = (attempt + 1) * 8
             this.post({ type: 'streamChunk', text: `\n\n_⏳ Provider rate limit — retrying in ${waitSec}s (attempt ${attempt + 1}/3)…_\n\n` })
+            await new Promise(r => setTimeout(r, waitSec * 1_000))
+            continue
+          }
+          if (err instanceof RouterError && err.statusCode === 502 && attempt < 2) {
+            const waitSec = (attempt + 1) * 5
+            this.post({ type: 'streamChunk', text: `\n\n_⚠️ Provider error (502) — retrying in ${waitSec}s (attempt ${attempt + 1}/2)…_\n\n` })
             await new Promise(r => setTimeout(r, waitSec * 1_000))
             continue
           }
@@ -674,6 +681,31 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         type: 'streamError',
         error: 'Agent safety cap reached (20 tool rounds). The task may be incomplete — review what was done and continue manually if needed.',
       })
+    }
+    } finally {
+      // Auto-save all files modified by the agent loop so they are written to disk
+      // immediately. Without this, applyEdit() leaves documents dirty and running a
+      // build/deploy script picks up the old on-disk version.
+      if (snapshotted.size > 0) {
+        const savedPaths: string[] = []
+        const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
+        for (const abs of snapshotted) {
+          try {
+            await vscode.workspace.save(vscode.Uri.file(abs))
+            const rel = root ? path.relative(root, abs) : abs
+            savedPaths.push(rel)
+            dbg(`auto-saved ${abs}`)
+          } catch (err) {
+            dbg(`auto-save failed for ${abs}: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }
+        if (savedPaths.length > 0) {
+          this.post({
+            type: 'streamChunk',
+            text: `\n\n---\n✓ **${savedPaths.length} file${savedPaths.length !== 1 ? 's' : ''} saved:** ${savedPaths.map(p => `\`${p}\``).join(', ')}`,
+          })
+        }
+      }
     }
 
     return { sentinelSeen }
@@ -816,7 +848,7 @@ Don't worry about framing it perfectly — just tell me what's in your head righ
   // timeoutMs, the AbortController is fired and a visible error is posted so the
   // user knows the provider dropped the connection silently rather than waiting
   // indefinitely with no feedback.
-  private startStreamWatchdog(timeoutMs = 90_000): { bump: () => void; stop: () => void } {
+  private startStreamWatchdog(timeoutMs = 180_000): { bump: () => void; stop: () => void } {
     let timer: ReturnType<typeof setTimeout> | undefined
     const bump = () => {
       if (timer) clearTimeout(timer)
@@ -964,6 +996,8 @@ Don't worry about framing it perfectly — just tell me what's in your head righ
       model: vsConfig.get<string>('model') ?? 'deepseek/deepseek-v4-pro',
       apiKey: apiKey ?? '',
       apiEndpoint: vsConfig.get<string>('apiEndpoint'),
+      openrouterIgnoreProviders: vsConfig.get<string[]>('openrouterIgnoreProviders') ?? [],
+      openrouterRequireProviders: vsConfig.get<string[]>('openrouterRequireProviders') ?? [],
     }
   }
 

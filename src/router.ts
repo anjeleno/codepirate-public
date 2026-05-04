@@ -111,6 +111,7 @@ function buildOpenAIRequest(
   options: RequestOptions,
   model: string,
   provider: Provider,
+  config?: RouterConfig,
 ): { body: string; headers: Record<string, string> } {
   const { messages, systemPrompt, maxTokens = 8192, thinkingBudget = 'off' } = options
 
@@ -184,6 +185,20 @@ function buildOpenAIRequest(
     headers['X-Title'] = 'Code Pirate'
   }
 
+  // OpenRouter provider routing — allow users to exclude bad sub-providers (e.g. Parasail)
+  // or force specific ones via VS Code settings.
+  if (provider === 'openrouter' && config) {
+    const ignore = config.openrouterIgnoreProviders ?? []
+    const require = config.openrouterRequireProviders ?? []
+    if (ignore.length > 0 || require.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const providerRouting: Record<string, any> = { allow_fallbacks: true }
+      if (ignore.length > 0) providerRouting['ignore'] = ignore
+      if (require.length > 0) providerRouting['order'] = require
+      body['provider'] = providerRouting
+    }
+  }
+
   return { body: JSON.stringify(body), headers }
 }
 
@@ -205,7 +220,7 @@ export async function routeRequest(
     headers = built.headers
     headers['x-api-key'] = config.apiKey
   } else {
-    const built = buildOpenAIRequest(options, config.model, config.provider)
+    const built = buildOpenAIRequest(options, config.model, config.provider, config)
     requestBody = built.body
     headers = built.headers
     headers['Authorization'] = `Bearer ${config.apiKey}`

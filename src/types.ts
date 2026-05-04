@@ -33,6 +33,8 @@ export interface RouterConfig {
   model: string
   apiKey: string
   apiEndpoint?: string // only used when provider === 'custom'
+  openrouterIgnoreProviders?: string[]
+  openrouterRequireProviders?: string[]
 }
 
 // ─── Tool-calling types ───────────────────────────────────────────────────────
