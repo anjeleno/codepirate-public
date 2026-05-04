@@ -2,8 +2,23 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: 00eb5fbf2e82c2f1206eb9e95fa6eaad107f2c7f -->
+<!-- LAST_PACKAGED_COMMIT: cff4cfaa888e5361b8d871c7370cc2988803d4ee -->
 <!-- CHANGES -->
+
+## [0.1.44] - 2026-05-04
+
+---
+
+## [0.1.43] - 2026-05-04
+
+---
+
+## [0.1.42] - 2026-05-04
+
+### Changed
+- V0.1.41: model sort bar, OR routing in Settings tab, blueprint/README updated
+
+---
 
 ## [0.1.41] - 2026-05-04
 

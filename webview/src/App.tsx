@@ -786,6 +786,21 @@ export default function App() {
       <div className="header">
         <div className="header-title">
           <span className="header-name">Code Pirate</span>
+          <button
+            onClick={() => postMessage({ type: 'openCommandPalette' })}
+            title="Open Code Pirate commands"
+            style={{
+              fontSize: 9,
+              padding: '1px 6px',
+              background: 'var(--vscode-button-background)',
+              color: 'var(--vscode-button-foreground)',
+              border: 'none',
+              borderRadius: 3,
+              cursor: 'pointer',
+              letterSpacing: 0.2,
+              flexShrink: 0,
+            }}
+          >commands</button>
           <span
             className={`license-badge ${state.tier}`}
             title={state.tier === 'pro' ? 'Pro' : 'Free — upgrade at codepirate.cc/pro'}

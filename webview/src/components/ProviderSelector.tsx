@@ -10,6 +10,16 @@ const SORT_LABELS: Record<SortKey, string> = {
   name:        'A–Z',
 }
 
+// Default model per provider — used by the ↺ reset button
+const DEFAULT_MODEL: Partial<Record<Provider, string>> = {
+  openrouter:        'deepseek/deepseek-v4-pro',
+  'anthropic-direct':'claude-sonnet-4-5',
+  groq:              'llama-3.3-70b-versatile',
+  mistral:           'mistral-large-latest',
+  gemini:            'gemini-2.5-flash',
+  together:          'meta-llama/Llama-3-70b-chat-hf',
+}
+
 // Static model lists for non-OpenRouter providers
 export const STATIC_MODELS: Partial<Record<Provider, ModelInfo[]>> = {
   // Fallback pricing for common OpenRouter models.
@@ -93,20 +103,28 @@ export function ProviderSelector({
     ? models
     : (STATIC_MODELS[provider] ?? [])
 
-  // Filter, sort, then cap at 50
+  // Filter, sort, then cap at 50.
+  // In Default sort, always float the currently-selected model to position 0
+  // so it remains visible regardless of where OpenRouter places it in its list.
   const q = query.toLowerCase()
   const matched = availableModels.filter(
     m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)
   )
-  const filtered = [...matched].sort((a, b) => {
+  const sorted = [...matched].sort((a, b) => {
     switch (sortBy) {
       case 'cost-asc':  return a.promptCostPer1k - b.promptCostPer1k
       case 'cost-desc': return b.promptCostPer1k - a.promptCostPer1k
       case 'ctx-desc':  return b.contextLength - a.contextLength
       case 'name':      return a.name.localeCompare(b.name)
-      default:          return 0
+      default: {
+        // Float the active model to top so the default is always discoverable
+        if (a.id === model) return -1
+        if (b.id === model) return 1
+        return 0
+      }
     }
-  }).slice(0, 50)
+  })
+  const filtered = sorted.slice(0, 50)
 
   const handleSelect = (id: string) => {
     justSelectedRef.current = true
@@ -167,11 +185,35 @@ export function ProviderSelector({
             onFocus={() => setOpen(true)}
             onBlur={handleBlur}
             placeholder="Search models…"
-            style={{ width: '100%', fontSize: 11, boxSizing: 'border-box' }}
+            style={{ width: '100%', fontSize: 11, boxSizing: 'border-box', paddingRight: 36 }}
             title="Model — type to filter"
             spellCheck={false}
             autoComplete="off"
           />
+          {/* ✕ clear  ↺ default — inline micro-buttons inside the input */}
+          <div style={{
+            position: 'absolute', right: 2, top: '50%', transform: 'translateY(-50%)',
+            display: 'flex', gap: 1,
+          }}>
+            <span
+              onMouseDown={e => { e.preventDefault(); setQuery(''); onModelChange(''); setOpen(true) }}
+              title="Clear model"
+              style={{ fontSize: 9, opacity: 0.45, cursor: 'pointer', padding: '1px 3px', userSelect: 'none' }}
+            >✕</span>
+            {DEFAULT_MODEL[provider] && (
+              <span
+                onMouseDown={e => {
+                  e.preventDefault()
+                  const def = DEFAULT_MODEL[provider]!
+                  setQuery(def)
+                  onModelChange(def)
+                  setOpen(false)
+                }}
+                title={`Reset to default (${DEFAULT_MODEL[provider]})`}
+                style={{ fontSize: 9, opacity: 0.45, cursor: 'pointer', padding: '1px 3px', userSelect: 'none' }}
+              >↺</span>
+            )}
+          </div>
           {open && filtered.length > 0 && (
             <div style={{
               position: 'absolute',

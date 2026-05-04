@@ -108,4 +108,5 @@ export type WebviewMessage =
   | { type: 'deleteVaultEntry'; id: string }
   | { type: 'activateLicense'; key: string }
   | { type: 'clearHistory' }
+  | { type: 'openCommandPalette' }
   | { type: 'estimateWorkspaceTokens' }

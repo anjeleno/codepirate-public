@@ -44,6 +44,7 @@ type WebviewMessage =
   | { type: 'deleteVaultEntry'; id: string }
   | { type: 'activateLicense'; key: string }
   | { type: 'clearHistory' }
+  | { type: 'openCommandPalette' }
   | { type: 'terminalError'; errorText: string }
   | { type: 'estimateWorkspaceTokens' }
   | { type: 'continue' }
@@ -366,6 +367,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         this.lastCoreSystemPrompt = null
         this.lastCoreRouterConfig = null
         this.ledger.reset()
+        break
+
+      case 'openCommandPalette':
+        await vscode.commands.executeCommand('workbench.action.quickOpen', '>pirate ')
         break
 
       case 'terminalError':
