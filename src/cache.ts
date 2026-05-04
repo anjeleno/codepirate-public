@@ -73,6 +73,11 @@ export class SnapshotCache {
     return 'reverted'
   }
 
+  /** Returns the snapshot content for a URI, or undefined if no snapshot exists. */
+  getContent(uri: vscode.Uri): string | undefined {
+    return this.snapshots.get(uri.toString())?.content
+  }
+
   clear(): void {
     this.snapshots.clear()
   }

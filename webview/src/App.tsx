@@ -50,6 +50,7 @@ const SLASH_PROMPTS: Record<string, string> = {
 interface DiffState {
   count: number
   files: string[]
+  source?: 'agent'
 }
 
 export interface ToolProgressItem {
@@ -142,7 +143,7 @@ type Action =
   | { type: 'LEDGER_UPDATE'; ledger: SessionCost }
   | { type: 'VAULT_ENTRIES'; entries: VaultEntry[] }
   | { type: 'LICENSE_STATUS'; tier: 'free' | 'pro' }
-  | { type: 'DIFF_READY'; count: number; files: string[] }
+  | { type: 'DIFF_READY'; count: number; files: string[]; source?: 'agent' }
   | { type: 'DIFF_APPLIED'; applied: string[]; failed: string[] }
   | { type: 'API_KEY_SET'; hasKey: boolean }
   | { type: 'MODELS_LOADED'; models: ModelInfo[] }
@@ -235,7 +236,7 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, tier: action.tier }
 
     case 'DIFF_READY':
-      return { ...state, pendingDiff: { count: action.count, files: action.files } }
+      return { ...state, pendingDiff: { count: action.count, files: action.files, source: action.source } }
 
     case 'DIFF_APPLIED':
       // Keep the banner visible if any hunks failed so the user can retry or dismiss manually.
@@ -519,7 +520,7 @@ export default function App() {
           dispatch({ type: 'LICENSE_STATUS', tier: msg.tier })
           break
         case 'diffReady':
-          dispatch({ type: 'DIFF_READY', count: msg.count, files: msg.files })
+          dispatch({ type: 'DIFF_READY', count: msg.count, files: msg.files, source: msg.source })
           break
         case 'diffApplied':
           dispatch({ type: 'DIFF_APPLIED', applied: msg.applied, failed: msg.failed })
@@ -870,7 +871,9 @@ export default function App() {
             {state.pendingDiff && (
               <div className="diff-banner">
                 <div className="diff-banner-title">
-                  📁 {state.pendingDiff.count} file{state.pendingDiff.count !== 1 ? 's' : ''} ready to apply
+                  {state.pendingDiff.source === 'agent'
+                    ? `✏️ ${state.pendingDiff.count} file${state.pendingDiff.count !== 1 ? 's' : ''} modified — review before saving`
+                    : `📁 ${state.pendingDiff.count} file${state.pendingDiff.count !== 1 ? 's' : ''} ready to apply`}
                 </div>
                 <div className="diff-files">{state.pendingDiff.files.join(', ')}</div>
                 <div className="diff-actions">
@@ -878,9 +881,9 @@ export default function App() {
                     Preview diff
                   </button>
                   <button className="btn-primary" onClick={() => postMessage({ type: 'applyDiff' })}>
-                    Apply all
+                    {state.pendingDiff.source === 'agent' ? 'Save all' : 'Apply all'}
                   </button>
-                  <button className="btn-icon" onClick={() => { postMessage({ type: 'rejectDiff' }); dispatch({ type: 'DIFF_APPLIED', applied: [], failed: [] }) }}>
+                  <button className="btn-icon" title="Discard all changes" onClick={() => postMessage({ type: 'rejectDiff' })}>
                     ✕
                   </button>
                 </div>

@@ -2,8 +2,19 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: cd54c620bb2e02815fa5100ccec75d85d8583c91 -->
+<!-- LAST_PACKAGED_COMMIT: 32d3c9abef4ee6dae6524e752e3c99cc1a2f2ff2 -->
 <!-- CHANGES -->
+
+## [0.1.39] - 2026-05-03
+
+### Changed
+- **Agent-loop edits no longer auto-save to disk**: CORE tool-call edits (via `applyEdit`) now stay in VS Code's in-memory document model until the user explicitly acts on them. The `✓ N files saved` auto-save behavior has been removed.
+
+### Added
+- **Diff preview for agent edits**: after a CORE session completes, a banner appears — `✏️ N files modified — review before saving`. Clicking **Preview diff** opens a VS Code diff editor showing the on-disk original vs. the in-memory proposed content for each modified file.
+- **Save all / Discard all**: the banner's **Save all** button flushes all modified files to disk. The **✕** (Discard) button reverts every file back to its pre-edit snapshot content — both in-memory and on disk — giving a clean full undo.
+
+---
 
 ## [0.1.38] - 2026-05-03
 

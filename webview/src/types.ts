@@ -74,7 +74,7 @@ export type ExtensionMessage =
   | { type: 'ledgerUpdate'; ledger: SessionCost }
   | { type: 'vaultEntries'; entries: VaultEntry[] }
   | { type: 'licenseStatus'; tier: 'free' | 'pro'; expiresAt?: string }
-  | { type: 'diffReady'; count: number; files: string[] }
+  | { type: 'diffReady'; count: number; files: string[]; source?: 'agent' }
   | { type: 'diffApplied'; applied: string[]; failed: string[] }
   | { type: 'apiKeySet'; hasKey: boolean }
   | { type: 'modelsLoaded'; models: ModelInfo[] }

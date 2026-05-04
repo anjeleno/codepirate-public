@@ -59,7 +59,7 @@ type ExtensionMessage =
   | { type: 'ledgerUpdate'; ledger: SessionCost }
   | { type: 'vaultEntries'; entries: VaultEntry[] }
   | { type: 'licenseStatus'; tier: 'free' | 'pro'; expiresAt?: string }
-  | { type: 'diffReady'; count: number; files: string[] }
+  | { type: 'diffReady'; count: number; files: string[]; source?: 'agent' }
   | { type: 'diffApplied'; applied: string[]; failed: string[] }
   | { type: 'apiKeySet'; hasKey: boolean }
   | { type: 'modelsLoaded'; models: ModelInfo[] }
@@ -133,6 +133,11 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
   private lastCoreRouterConfig: RouterConfig | null = null
   private lastCoreMaxTokens = 8192
   private lastCoreThinkingBudget: ThinkingBudget = 'off'
+
+  // Tracks absolute paths of files mutated by the last agent loop.
+  // Populated after the loop completes (instead of auto-saving).
+  // Cleared when the user saves (applyDiff) or discards (rejectDiff).
+  private agentModifiedFiles = new Set<string>()
 
   // Planner session state — when true, routes all messages through the
   // planner persona + CORE agent loop regardless of the user's persona setting.
@@ -276,30 +281,56 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       }
 
       case 'previewDiff':
-        await this.diffManager.previewChanges()
+        // Agent-loop edits: compare on-disk original vs. in-memory proposed content.
+        // Legacy diff path: show the parsed markdown code blocks.
+        if (this.agentModifiedFiles.size > 0) {
+          await this.previewAgentDiffs()
+        } else {
+          await this.diffManager.previewChanges()
+        }
         break
 
       case 'applyDiff': {
-        const result = await this.diffManager.applyChanges()
-        this.post({ type: 'diffApplied', applied: result.applied, failed: result.failed })
-        if (result.failed.length > 0) {
-          // Surface failed hunks as a visible error in the chat window.
-          // Users should see exactly what failed rather than watching the banner
-          // silently disappear with nothing written to disk.
-          const lines = result.failed.map(f => `• ${f}`).join('\n')
-          const appliedNote = result.applied.length > 0
-            ? `\n\n${result.applied.length} file(s) applied successfully: ${result.applied.join(', ')}`
-            : ''
-          this.post({
-            type: 'streamError',
-            error: `Diff apply failed for ${result.failed.length} file(s):\n${lines}${appliedNote}\n\nThe SEARCH text must match the file exactly — including whitespace and indentation. Ask CORE to re-read the file and produce a corrected SEARCH/REPLACE block.`,
-          })
+        if (this.agentModifiedFiles.size > 0) {
+          // Agent path: save dirty in-memory documents to disk.
+          const { saved, failed } = await this.saveAgentDiffs()
+          this.post({ type: 'diffApplied', applied: saved, failed })
+          if (failed.length > 0) {
+            this.post({
+              type: 'streamError',
+              error: `Failed to save ${failed.length} file(s): ${failed.join(', ')}`,
+            })
+          }
+        } else {
+          // Legacy markdown-diff path.
+          const result = await this.diffManager.applyChanges()
+          this.post({ type: 'diffApplied', applied: result.applied, failed: result.failed })
+          if (result.failed.length > 0) {
+            // Surface failed hunks as a visible error in the chat window.
+            // Users should see exactly what failed rather than watching the banner
+            // silently disappear with nothing written to disk.
+            const lines = result.failed.map(f => `• ${f}`).join('\n')
+            const appliedNote = result.applied.length > 0
+              ? `\n\n${result.applied.length} file(s) applied successfully: ${result.applied.join(', ')}`
+              : ''
+            this.post({
+              type: 'streamError',
+              error: `Diff apply failed for ${result.failed.length} file(s):\n${lines}${appliedNote}\n\nThe SEARCH text must match the file exactly — including whitespace and indentation. Ask CORE to re-read the file and produce a corrected SEARCH/REPLACE block.`,
+            })
+          }
         }
         break
       }
 
       case 'rejectDiff':
-        this.diffManager.clearPending() // also cleans up temp preview files
+        if (this.agentModifiedFiles.size > 0) {
+          // Agent path: restore each file to its pre-edit snapshot content.
+          await this.revertAgentDiffs()
+        } else {
+          // Legacy path: just discard the pending parsed changes.
+          this.diffManager.clearPending()
+        }
+        this.post({ type: 'diffApplied', applied: [], failed: [] })
         break
 
       case 'saveVaultEntry': {
@@ -683,32 +714,114 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       })
     }
     } finally {
-      // Auto-save all files modified by the agent loop so they are written to disk
-      // immediately. Without this, applyEdit() leaves documents dirty and running a
-      // build/deploy script picks up the old on-disk version.
+      // Surface a pending-review banner for every file the agent touched.
+      // We do NOT auto-save here — the user must explicitly click "Save all"
+      // (applyDiff) or "Discard all" (rejectDiff) in the webview banner.
+      // This mirrors how VS Code's own editing tools work: edits land in the
+      // in-memory document (dirty/unsaved), and the user decides what to keep.
       if (snapshotted.size > 0) {
-        const savedPaths: string[] = []
+        // Replace any stale agent-diff state from a previous run
+        this.agentModifiedFiles = new Set(snapshotted)
         const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
-        for (const abs of snapshotted) {
-          try {
-            await vscode.workspace.save(vscode.Uri.file(abs))
-            const rel = root ? path.relative(root, abs) : abs
-            savedPaths.push(rel)
-            dbg(`auto-saved ${abs}`)
-          } catch (err) {
-            dbg(`auto-save failed for ${abs}: ${err instanceof Error ? err.message : String(err)}`)
-          }
-        }
-        if (savedPaths.length > 0) {
-          this.post({
-            type: 'streamChunk',
-            text: `\n\n---\n✓ **${savedPaths.length} file${savedPaths.length !== 1 ? 's' : ''} saved:** ${savedPaths.map(p => `\`${p}\``).join(', ')}`,
-          })
-        }
+        const relPaths = [...snapshotted].map(abs =>
+          root ? path.relative(root, abs) : abs,
+        )
+        this.post({
+          type: 'diffReady',
+          count: relPaths.length,
+          files: relPaths,
+          source: 'agent',
+        })
+        dbg(`diffReady sent for ${relPaths.length} agent-modified file(s): ${relPaths.join(', ')}`)
       }
     }
 
     return { sentinelSeen }
+  }
+
+  // ─── Agent diff helpers ────────────────────────────────────────────────────
+
+  /**
+   * Opens a VS Code diff editor for each file the agent modified in-memory.
+   * Left side = on-disk original (unchanged because applyEdit never saves).
+   * Right side = in-memory dirty content written to a temp file.
+   */
+  private async previewAgentDiffs(): Promise<void> {
+    const os = await import('os')
+    const fsp = await import('fs/promises')
+    for (const abs of this.agentModifiedFiles) {
+      const uri = vscode.Uri.file(abs)
+      try {
+        const doc = await vscode.workspace.openTextDocument(uri)
+        const proposed = doc.getText()
+        const tmpPath = path.join(
+          os.tmpdir(),
+          `cp-agent-${Date.now()}-${path.basename(abs)}`,
+        )
+        await fsp.writeFile(tmpPath, proposed, 'utf-8')
+        await vscode.commands.executeCommand(
+          'vscode.diff',
+          uri,                          // left: on-disk original
+          vscode.Uri.file(tmpPath),     // right: in-memory proposed
+          `Code Pirate ↔ ${path.basename(abs)}`,
+        )
+      } catch (err) {
+        dbg(`previewAgentDiffs failed for ${abs}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+  }
+
+  /**
+   * Saves all agent-modified files to disk. Clears agentModifiedFiles.
+   * Returns lists of saved and failed relative paths.
+   */
+  private async saveAgentDiffs(): Promise<{ saved: string[]; failed: string[] }> {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? ''
+    const saved: string[] = []
+    const failed: string[] = []
+    for (const abs of this.agentModifiedFiles) {
+      try {
+        await vscode.workspace.save(vscode.Uri.file(abs))
+        saved.push(root ? path.relative(root, abs) : abs)
+      } catch (err) {
+        failed.push(root ? path.relative(root, abs) : abs)
+        dbg(`saveAgentDiffs failed for ${abs}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    this.agentModifiedFiles.clear()
+    return { saved, failed }
+  }
+
+  /**
+   * Reverts all agent-modified files to their pre-edit snapshot content.
+   * Applies the snapshot in-memory via WorkspaceEdit then saves to disk so
+   * both the open editor and the file on disk reflect the original content.
+   */
+  private async revertAgentDiffs(): Promise<void> {
+    for (const abs of this.agentModifiedFiles) {
+      const uri = vscode.Uri.file(abs)
+      const original = this.snapshotCache.getContent(uri)
+      if (original === undefined) {
+        dbg(`revertAgentDiffs: no snapshot for ${abs}`)
+        continue
+      }
+      try {
+        const doc = await vscode.workspace.openTextDocument(uri)
+        const edit = new vscode.WorkspaceEdit()
+        edit.replace(
+          uri,
+          new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)),
+          original,
+        )
+        await vscode.workspace.applyEdit(edit)
+        // Save restored content to disk so the file matches the original
+        await vscode.workspace.save(uri)
+        dbg(`reverted ${abs}`)
+      } catch (err) {
+        dbg(`revertAgentDiffs failed for ${abs}: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
+    this.agentModifiedFiles.clear()
   }
 
   // ─── Project Planner ───────────────────────────────────────────────────────
