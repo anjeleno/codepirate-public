@@ -35,6 +35,7 @@ type WebviewMessage =
   | { type: 'setApiKey'; key: string }
   | { type: 'setProvider'; provider: Provider }
   | { type: 'setModel'; model: string }
+  | { type: 'setOpenRouterProviders'; ignore: string[]; require: string[] }
   | { type: 'cancelStream' }
   | { type: 'previewDiff' }
   | { type: 'applyDiff' }
@@ -271,6 +272,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         await vscode.workspace
           .getConfiguration()
           .update('codePirate.model', msg.model, vscode.ConfigurationTarget.Global)
+        break
+      }
+
+      case 'setOpenRouterProviders': {
+        const cfg = vscode.workspace.getConfiguration()
+        await cfg.update('codePirate.openrouterIgnoreProviders', msg.ignore, vscode.ConfigurationTarget.Global)
+        await cfg.update('codePirate.openrouterRequireProviders', msg.require, vscode.ConfigurationTarget.Global)
         break
       }
 
@@ -1001,6 +1009,8 @@ Don't worry about framing it perfectly — just tell me what's in your head righ
         vaultEntries: this.vaultManager.getEntries(),
         providers: allProviders,
         streaming: this.streaming,  // preserve in-progress state if webview reloads mid-stream
+        openrouterIgnoreProviders: config.get<string[]>('openrouterIgnoreProviders') ?? [],
+        openrouterRequireProviders: config.get<string[]>('openrouterRequireProviders') ?? [],
       },
     })
     this._initialized = true

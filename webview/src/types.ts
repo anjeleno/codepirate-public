@@ -5,6 +5,7 @@ export type Provider =
   | 'anthropic-direct'
   | 'ollama'
   | 'lmstudio'
+  | 'freellmapi'
   | 'groq'
   | 'together'
   | 'mistral'
@@ -63,6 +64,8 @@ export interface InitialState {
   vaultEntries: VaultEntry[]
   providers: ProviderInfo[]
   streaming?: boolean
+  openrouterIgnoreProviders: string[]
+  openrouterRequireProviders: string[]
 }
 
 export type ExtensionMessage =
@@ -96,6 +99,7 @@ export type WebviewMessage =
   | { type: 'setApiKey'; key: string }
   | { type: 'setProvider'; provider: Provider }
   | { type: 'setModel'; model: string }
+  | { type: 'setOpenRouterProviders'; ignore: string[]; require: string[] }
   | { type: 'cancelStream' }
   | { type: 'previewDiff' }
   | { type: 'applyDiff' }

@@ -63,7 +63,7 @@ You can drag it to any panel in VS Code — the layout is yours to keep.
 At the top of the sidebar, two controls:
 
 - **Provider dropdown** — select your active provider. (Multi-provider hub — configure multiple providers simultaneously and switch on demand — is a Pro feature.)
-- **Model search** — type to filter. For OpenRouter, this searches all 200+ available models in real time, showing model name, ID, price per 1k tokens, and context length. For other providers, a curated list is shown. Start typing a name, click to select.
+- **Model search** — type to filter. For OpenRouter, this searches all 200+ available models in real time, showing model name, ID, price per 1k tokens, and context length. Sortable by cost (cheapest or most expensive first), context length, or alphabetically — use the sort bar at the top of the dropdown. For other providers, a curated list is shown. Start typing a name, click to select.
 
 The badge to the right shows **Free** or **⚡ Pro** (your license tier).
 
@@ -85,7 +85,7 @@ The main chat interface. Type a message and press Enter or click Send.
 **Thinking Budget Dial:** Five positions — Off, Low, Medium, High, Max. Controls how much reasoning the model does before responding. Higher = better answers on complex problems, higher cost, more latency. Off = fastest and cheapest.
 
 **Personas:** Three chat modes selectable from the toolbar:
-- **Lead Architect** — default; full system prompt optimized for architectural decisions and code generation
+- **CORE** — default; autonomous build mode with phase detection, multi-turn continuation, and full tool-calling agent loop
 - **Diff Agent** — focused on producing clean, reviewable file changes
 - **Snippet Engine** — optimized for short, precise code completions and one-liners
 
@@ -129,7 +129,12 @@ A local library of saved prompt templates. Use it to store:
 
 ### Settings Tab
 
-Change your provider and API key at any time without re-running the setup wizard. Useful when switching between OpenRouter for general work and Anthropic Direct for heavy reasoning tasks.
+Change your provider, API key, and routing preferences at any time without re-running the setup wizard.
+
+**OpenRouter sub-provider routing** — if a specific sub-provider (e.g. Parasail) is returning errors or charging you for failed calls, you can exclude it without changing models:
+- **Exclude** — comma-separated list of sub-providers to blacklist (e.g. `Parasail, Together`)
+- **Require (in order)** — force routing through specific sub-providers in priority order (e.g. `DeepInfra, Together`)
+- Click **Save Routing** — takes effect on the next request. Leave both blank to let OpenRouter route automatically.
 
 ---
 
@@ -192,6 +197,7 @@ Code Pirate automatically detects and injects your project instructions file int
 | **Together AI** | Cloud | Open model hosting |
 | **Ollama** | Local | No key required; fully offline |
 | **LM Studio** | Local | No key required; fully offline |
+| **FreeLLMAPI** | Local proxy | Self-hosted proxy aggregating 11+ free-tier providers (Gemini, Groq, Cerebras, Mistral, and more) — [github.com/tashfeenahmed/freellmapi](https://github.com/tashfeenahmed/freellmapi) |
 | **Custom endpoint** | Any | Any OpenAI-compatible API — enter the URL manually |
 
 Endpoints are pre-filled automatically for each provider. The only manual entry needed is your API key.

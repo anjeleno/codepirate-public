@@ -5,6 +5,7 @@ export type Provider =
   | 'anthropic-direct'
   | 'ollama'
   | 'lmstudio'
+  | 'freellmapi'
   | 'groq'
   | 'together'
   | 'mistral'

@@ -1,6 +1,15 @@
 import { useState, useRef, useEffect } from 'react'
 import type { Provider, ProviderInfo, ModelInfo } from '../types'
 
+type SortKey = 'default' | 'cost-asc' | 'cost-desc' | 'ctx-desc' | 'name'
+const SORT_LABELS: Record<SortKey, string> = {
+  default:    'Default',
+  'cost-asc':  '$↑',
+  'cost-desc': '$↓',
+  'ctx-desc':  'Ctx',
+  name:        'A–Z',
+}
+
 // Static model lists for non-OpenRouter providers
 export const STATIC_MODELS: Partial<Record<Provider, ModelInfo[]>> = {
   // Fallback pricing for common OpenRouter models.
@@ -56,6 +65,7 @@ export function ProviderSelector({
 }: Props) {
   const [query, setQuery] = useState(model)
   const [open, setOpen] = useState(false)
+  const [sortBy, setSortBy] = useState<SortKey>('default')
   const containerRef = useRef<HTMLDivElement>(null)
   // Track whether a dropdown item was just selected so handleBlur
   // doesn't overwrite the correct ID with a stale search term.
@@ -76,18 +86,27 @@ export function ProviderSelector({
   }, [])
 
   // Determine the available model list for this provider
-  const isLocal = provider === 'ollama' || provider === 'lmstudio'
+  const isLocal = provider === 'ollama' || provider === 'lmstudio' || provider === 'freellmapi'
   const isCustom = provider === 'custom'
   const isOpenRouter = provider === 'openrouter'
   const availableModels: ModelInfo[] = isOpenRouter
     ? models
     : (STATIC_MODELS[provider] ?? [])
 
-  // Filter by query
+  // Filter, sort, then cap at 50
   const q = query.toLowerCase()
-  const filtered = availableModels.filter(
+  const matched = availableModels.filter(
     m => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)
-  ).slice(0, 50) // cap at 50 to keep dropdown snappy
+  )
+  const filtered = [...matched].sort((a, b) => {
+    switch (sortBy) {
+      case 'cost-asc':  return a.promptCostPer1k - b.promptCostPer1k
+      case 'cost-desc': return b.promptCostPer1k - a.promptCostPer1k
+      case 'ctx-desc':  return b.contextLength - a.contextLength
+      case 'name':      return a.name.localeCompare(b.name)
+      default:          return 0
+    }
+  }).slice(0, 50)
 
   const handleSelect = (id: string) => {
     justSelectedRef.current = true
@@ -117,6 +136,7 @@ export function ProviderSelector({
         onChange={e => {
           onProviderChange(e.target.value as Provider)
           setQuery('') // clear model on provider change
+          setSortBy('default')
         }}
         style={{ flex: '1', minWidth: 100, fontSize: 11 }}
         title="Provider"
@@ -166,6 +186,39 @@ export function ProviderSelector({
               overflowY: 'auto',
               fontSize: 11,
             }}>
+              {availableModels.length > 10 && (
+                <div style={{
+                  display: 'flex',
+                  gap: 3,
+                  padding: '3px 6px',
+                  borderBottom: '1px solid var(--vscode-widget-border, #333)',
+                  alignItems: 'center',
+                  position: 'sticky',
+                  top: 0,
+                  background: 'var(--vscode-dropdown-background)',
+                  zIndex: 1,
+                }}>
+                  <span style={{ fontSize: 9, opacity: 0.45, marginRight: 1 }}>Sort:</span>
+                  {(['default', 'cost-asc', 'cost-desc', 'ctx-desc', 'name'] as SortKey[]).map(key => (
+                    <span
+                      key={key}
+                      onMouseDown={e => { e.preventDefault(); setSortBy(key) }}
+                      style={{
+                        fontSize: 9,
+                        cursor: 'pointer',
+                        padding: '1px 5px',
+                        borderRadius: 2,
+                        userSelect: 'none',
+                        background: sortBy === key ? 'var(--vscode-list-activeSelectionBackground)' : 'transparent',
+                        color: sortBy === key ? 'var(--vscode-list-activeSelectionForeground)' : 'var(--vscode-foreground)',
+                        opacity: sortBy === key ? 1 : 0.55,
+                      }}
+                    >
+                      {SORT_LABELS[key]}
+                    </span>
+                  ))}
+                </div>
+              )}
               {filtered.map(m => (
                 <div
                   key={m.id}
@@ -194,6 +247,18 @@ export function ProviderSelector({
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {provider === 'freellmapi' && (
+        <div style={{ width: '100%', marginTop: 2 }}>
+          <a
+            href="https://github.com/tashfeenahmed/freellmapi"
+            style={{ fontSize: 10, opacity: 0.6, textDecoration: 'none' }}
+            title="FreeLLMAPI — self-hosted proxy aggregating 11+ free-tier AI providers"
+          >
+            ↗ github.com/tashfeenahmed/freellmapi
+          </a>
         </div>
       )}
 

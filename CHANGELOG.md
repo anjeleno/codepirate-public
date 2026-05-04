@@ -2,8 +2,24 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: 32d3c9abef4ee6dae6524e752e3c99cc1a2f2ff2 -->
+<!-- LAST_PACKAGED_COMMIT: 00eb5fbf2e82c2f1206eb9e95fa6eaad107f2c7f -->
 <!-- CHANGES -->
+
+## [0.1.41] - 2026-05-04
+
+### Added
+- **Model sort bar** in OpenRouter model dropdown: sort by cheapest first (`$↑`), most expensive (`$↓`), largest context (`Ctx`), or alphabetical (`A–Z`). Sticky bar appears at the top of the dropdown for providers with >10 models. Sort applies before the 50-item display cap.
+- **OpenRouter sub-provider routing** in Settings tab: two text inputs (Exclude / Require in order) + Save Routing button let users blacklist flaky sub-providers or force preferred ones without editing `settings.json`.
+- **FreeLLMAPI** added as a named local-proxy provider (`⬡ FreeLLMAPI (Local Proxy)`, `http://localhost:3001/v1/chat/completions`). Attribution link appears below the selector when active. Free-tier single-provider gating unchanged.
+
+---
+
+## [0.1.40] - 2026-05-04
+
+### Added
+- **FreeLLMAPI provider**: `FreeLLMAPI (Local Proxy)` is now a first-class named provider in the dropdown, pointing at `http://localhost:3001/v1/chat/completions`. Surfaces the self-hosted OpenAI-compatible proxy ([github.com/tashfeenahmed/freellmapi](https://github.com/tashfeenahmed/freellmapi)) that aggregates 11+ free-tier AI providers behind a single local endpoint. A project link appears below the selector when this provider is active.
+
+---
 
 ## [0.1.39] - 2026-05-03
 

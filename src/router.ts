@@ -23,6 +23,11 @@ export const PROVIDER_PRESETS: Record<Provider, ProviderPreset> = {
     endpoint: 'http://localhost:1234/v1/chat/completions',
     isLocal: true,
   },
+  freellmapi: {
+    label: 'FreeLLMAPI (Local Proxy)',
+    endpoint: 'http://localhost:3001/v1/chat/completions',
+    isLocal: true,
+  },
   groq: {
     label: 'Groq',
     endpoint: 'https://api.groq.com/openai/v1/chat/completions',

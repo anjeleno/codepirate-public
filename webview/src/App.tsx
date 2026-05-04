@@ -91,6 +91,8 @@ interface AppState {
   buildPaused: boolean
   toolProgressItems: ToolProgressItem[]
   waitingForResponse: boolean
+  orIgnoreProviders: string[]
+  orRequireProviders: string[]
 }
 
 const emptyLedger: SessionCost = {
@@ -131,6 +133,8 @@ const initialState: AppState = {
   buildPaused: false,
   toolProgressItems: [],
   waitingForResponse: false,
+  orIgnoreProviders: [],
+  orRequireProviders: [],
 }
 
 type Action =
@@ -189,6 +193,8 @@ function reducer(state: AppState, action: Action): AppState {
         // the streaming flag so the UI shows the correct in-progress state.
         streaming: s.streaming ?? state.streaming,
         waitingForResponse: s.streaming ? true : state.waitingForResponse,
+        orIgnoreProviders: s.openrouterIgnoreProviders ?? [],
+        orRequireProviders: s.openrouterRequireProviders ?? [],
       }
     }
 
@@ -1045,6 +1051,8 @@ export default function App() {
             tier={state.tier}
             onApiKeySubmit={handleApiKeySubmit}
             inputRef={inputRef}
+            orIgnoreProviders={state.orIgnoreProviders}
+            orRequireProviders={state.orRequireProviders}
           />
         )}
 
@@ -1092,11 +1100,27 @@ interface SettingsViewProps {
   tier: 'free' | 'pro'
   onApiKeySubmit: (key: string) => void
   inputRef: React.RefObject<HTMLInputElement>
+  orIgnoreProviders: string[]
+  orRequireProviders: string[]
 }
 
-function SettingsView({ hasApiKey, tier, onApiKeySubmit, inputRef }: SettingsViewProps) {
+function SettingsView({ hasApiKey, tier, onApiKeySubmit, inputRef, orIgnoreProviders, orRequireProviders }: SettingsViewProps) {
   const [apiKeyInput, setApiKeyInput] = React.useState('')
   const [licenseInput, setLicenseInput] = React.useState('')
+  const [orIgnoreInput, setOrIgnoreInput] = React.useState(orIgnoreProviders.join(', '))
+  const [orRequireInput, setOrRequireInput] = React.useState(orRequireProviders.join(', '))
+
+  function parseProviderList(raw: string): string[] {
+    return raw.split(',').map(s => s.trim()).filter(Boolean)
+  }
+
+  function handleSaveOrProviders() {
+    postMessage({
+      type: 'setOpenRouterProviders',
+      ignore: parseProviderList(orIgnoreInput),
+      require: parseProviderList(orRequireInput),
+    })
+  }
 
   return (
     <div className="settings-view">
@@ -1157,6 +1181,35 @@ function SettingsView({ hasApiKey, tier, onApiKeySubmit, inputRef }: SettingsVie
         <div className="settings-label">Provider & Model</div>
         <div style={{ fontSize: 11, opacity: 0.6 }}>
           Configure the provider and model in the Chat tab header.
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <div className="settings-label">OpenRouter — Provider Routing</div>
+        <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>
+          Control which sub-providers OpenRouter routes your requests to. Comma-separated names, e.g. <em>Parasail, DeepInfra</em>.
+        </div>
+        <label style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>Exclude (ignore)</label>
+        <input
+          type="text"
+          value={orIgnoreInput}
+          onChange={e => setOrIgnoreInput(e.target.value)}
+          placeholder="e.g. Parasail, Together"
+          style={{ marginBottom: 6 }}
+        />
+        <label style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>Require (in order)</label>
+        <input
+          type="text"
+          value={orRequireInput}
+          onChange={e => setOrRequireInput(e.target.value)}
+          placeholder="e.g. DeepInfra, Together"
+          style={{ marginBottom: 6 }}
+        />
+        <button className="btn-primary" onClick={handleSaveOrProviders}>
+          Save Routing
+        </button>
+        <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4 }}>
+          Leave both blank to let OpenRouter route automatically.
         </div>
       </div>
 
