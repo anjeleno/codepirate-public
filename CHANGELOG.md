@@ -7,16 +7,10 @@ All notable changes are documented here. Format follows [Keep a Changelog](https
 
 ## [0.1.44] - 2026-05-04
 
----
-
-## [0.1.43] - 2026-05-04
-
----
-
-## [0.1.42] - 2026-05-04
-
-### Changed
-- V0.1.41: model sort bar, OR routing in Settings tab, blueprint/README updated
+### Added
+- **Active-model float in Default sort**: the currently-selected model is always pinned to position 0 in the model dropdown when using Default sort, ensuring it remains visible regardless of OpenRouter's native ordering.
+- **✕ / ↺ micro-buttons in model search input**: a `✕` button clears the current model selection and reopens the list; a `↺` button resets to the provider's recommended default model (e.g. `deepseek/deepseek-v4-pro` for OpenRouter). Buttons are positioned inline inside the input field.
+- **"commands" button in header**: a compact button in the header strip opens the VS Code command palette pre-filtered to all Code Pirate commands (`>pirate`), surfacing the full command set without requiring `Cmd+Shift+P`.
 
 ---
 
