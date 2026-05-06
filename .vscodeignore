@@ -21,6 +21,10 @@ scripts/**
 *.sh
 sync-public.sh
 
+# Media variants — only media/logo.png is needed
+media/Logos/**
+media/icon.svg
+
 # Test / CI
 .github/**
 coverage/**

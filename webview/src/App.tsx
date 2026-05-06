@@ -61,6 +61,13 @@ export interface ToolProgressItem {
   result: string
 }
 
+interface ErrorDebug {
+  model: string
+  provider: string
+  timestamp: string
+  raw: string
+}
+
 interface AppState {
   initialized: boolean
   messages: ChatMessage[]
@@ -68,6 +75,7 @@ interface AppState {
   streamingThinking: string
   streaming: boolean
   error: string | null
+  errorDebug: ErrorDebug | null
   persona: Persona
   thinkingBudget: ThinkingBudget
   includeWorkspace: boolean
@@ -110,6 +118,7 @@ const initialState: AppState = {
   streamingThinking: '',
   streaming: false,
   error: null,
+  errorDebug: null,
   persona: 'core',
   thinkingBudget: 'off',
   includeWorkspace: false,
@@ -230,7 +239,20 @@ function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'STREAM_ERROR':
-      return { ...state, streaming: false, waitingForResponse: false, streamingText: '', streamingThinking: '', error: action.error }
+      return {
+        ...state,
+        streaming: false,
+        waitingForResponse: false,
+        streamingText: '',
+        streamingThinking: '',
+        error: action.error,
+        errorDebug: {
+          raw: action.error,
+          model: state.model,
+          provider: state.provider,
+          timestamp: new Date().toISOString(),
+        },
+      }
 
     case 'LEDGER_UPDATE':
       return { ...state, ledger: action.ledger }
@@ -288,7 +310,7 @@ function reducer(state: AppState, action: Action): AppState {
     }
 
     case 'CLEAR_ERROR':
-      return { ...state, error: null }
+      return { ...state, error: null, errorDebug: null }
 
     case 'CLEAR_HISTORY':
       try { localStorage.removeItem(CURRENT_SESSION_KEY) } catch { /* ignore */ }
@@ -838,10 +860,11 @@ export default function App() {
 
       {/* Error bar */}
       {state.error && (
-        <div className="error-bar">
-          <span>{state.error}</span>
-          <button className="btn-icon" onClick={() => dispatch({ type: 'CLEAR_ERROR' })}>✕</button>
-        </div>
+        <ErrorBar
+          error={state.error}
+          debug={state.errorDebug}
+          onDismiss={() => dispatch({ type: 'CLEAR_ERROR' })}
+        />
       )}
 
       {/* Main content */}
@@ -1237,6 +1260,68 @@ function SettingsView({ hasApiKey, tier, onApiKeySubmit, inputRef, orIgnoreProvi
           4. Start chatting — your key, your models, no throttling
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Error bar with "Under the Hood" debug toggle ────────────────────────────
+
+interface ErrorBarProps {
+  error: string
+  debug: ErrorDebug | null
+  onDismiss: () => void
+}
+
+function ErrorBar({ error, debug, onDismiss }: ErrorBarProps) {
+  const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const debugText = debug
+    ? [
+        'Code Pirate — Error Report',
+        '===========================',
+        `Timestamp : ${debug.timestamp}`,
+        `Model     : ${debug.model}`,
+        `Provider  : ${debug.provider}`,
+        '',
+        'Error',
+        '-----',
+        debug.raw,
+      ].join('\n')
+    : error
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(debugText).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  return (
+    <div className="error-bar">
+      <div className="error-bar-top">
+        <span className="error-bar-message">{error}</span>
+        <div className="error-bar-actions">
+          {debug && (
+            <button
+              className="btn-icon error-bar-hood"
+              onClick={() => setOpen(o => !o)}
+              title="Under the Hood — view debug info"
+            >
+              {open ? '▾' : '▸'} Under the Hood
+            </button>
+          )}
+          <button className="btn-icon" onClick={onDismiss} title="Dismiss">✕</button>
+        </div>
+      </div>
+      {open && debug && (
+        <div className="error-bar-debug">
+          <pre className="error-bar-debug-text">{debugText}</pre>
+          <button className="btn-icon error-bar-copy" onClick={handleCopy}>
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

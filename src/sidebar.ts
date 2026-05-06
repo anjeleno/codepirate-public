@@ -531,7 +531,12 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         if (wasPlannerSession && sentinelSeen) {
           await onBlueprintWritten()
           this.plannerActive = false
-          this.post({ type: 'streamChunk', text: '\n\n---\n\nYour blueprint is live at `blueprint.md`. CORE will reference it automatically in future sessions. You can edit it any time \u2014 it\'s just markdown.' })
+          // Clear the planner Q&A history so CORE starts fresh.
+          // The blueprint.md and .projectrules files carry all the decisions —
+          // the planner conversation is noise that confuses the model into thinking
+          // it's still in planner mode when the user asks to start building.
+          this.conversationHistory = []
+          this.post({ type: 'streamChunk', text: '\n\n---\n\nYour blueprint is live at `blueprint.md`. CORE will reference it automatically. You can edit it any time — it\'s just markdown.\n\n**Ready to build.** Send your first instruction and CORE will get to work.' })
         }
         return
       }

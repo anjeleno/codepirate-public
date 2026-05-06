@@ -2,8 +2,28 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: cff4cfaa888e5361b8d871c7370cc2988803d4ee -->
+<!-- LAST_PACKAGED_COMMIT: 99ddf71b081dda476443a36269b6029dc7255fa6 -->
 <!-- CHANGES -->
+
+## [0.1.48] - 2026-05-06
+
+### Added
+- Under the Hood collapsible debug panel on the error bar — shows model, provider, timestamp, and raw error with a one-click Copy button for easy paste into GitHub issues or debug sessions
+
+### Fixed
+- Planner auto-transition bug: DeepSeek would refuse to write code after blueprint synthesis and demand a manual "mode switch." Conversation history is now cleared on synthesis completion so CORE starts with a clean context.
+
+---
+
+## [0.1.45] - 2026-05-05
+
+### Added
+- V0.1.44
+
+### Changed
+- Active-model float in Default sort, ✕/↺ model micro-buttons, header commands palette button
+
+---
 
 ## [0.1.44] - 2026-05-04
 

@@ -711,22 +711,63 @@ input:focus, textarea:focus, select:focus {
   font-size: 12px;
   color: var(--vscode-inputValidation-errorForeground);
   display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  flex-direction: column;
   flex-shrink: 0;
   gap: 6px;
 }
 
-.error-bar > span {
+.error-bar-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.error-bar-message {
   flex: 1;
   min-width: 0;
   overflow-wrap: break-word;
   word-break: break-word;
 }
 
-.error-bar > .btn-icon {
+.error-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   flex-shrink: 0;
-  margin-top: 1px;
+}
+
+.error-bar-hood {
+  font-size: 11px;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+
+.error-bar-debug {
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-inputValidation-errorBorder);
+  border-radius: 3px;
+  padding: 6px 8px;
+  position: relative;
+}
+
+.error-bar-debug-text {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--vscode-editor-foreground);
+  opacity: 0.9;
+  padding-right: 48px;
+}
+
+.error-bar-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 11px;
+  opacity: 0.8;
 }
 
 .section-title {
