@@ -2,8 +2,28 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: 10e9dfaada892181c8d04fbec5d0396d54f1129d -->
+<!-- LAST_PACKAGED_COMMIT: 42e297c16ed9a10c1c2790ceff9707b2f597caac -->
 <!-- CHANGES -->
+
+## [0.1.52] - 2026-05-07
+
+### Fixed
+- **Continue button now re-enters the agent loop with tools** — previously it routed to the legacy text-stream path (`handleContinue`) which has no tool access, causing the model to re-read all files and restart from scratch on every click instead of resuming
+- Partial model reasoning text is now saved to history before `agentPaused` fires on a stream error, so the model knows exactly where it was cut off and doesn't treat the resume as a blank slate
+- Both the round-cap and stream-error `agentPaused` cases now resume via `handleResumeAgent()` → `runAgentLoop`, not the legacy continuation path
+
+---
+
+## [0.1.51] - 2026-05-07
+
+### Fixed
+- Agent stream errors (connection drops, watchdog timeouts) during an active agent run now surface the **Continue** button instead of the red error bar — accumulated tool-call history is saved so the model resumes without restarting or re-paying tokens
+- `agentPaused` banner now shows context-appropriate text: "connection dropped mid-task" vs "tool round cap reached"
+
+### Changed
+- `agentPaused` message now carries a `reason` field (`'cap' | 'error'`) used by the webview to display the correct banner copy
+
+---
 
 ## [0.1.50] - 2026-05-07
 

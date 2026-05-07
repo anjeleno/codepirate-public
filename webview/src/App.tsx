@@ -103,6 +103,7 @@ interface AppState {
   isCoreBuilding: boolean
   buildPaused: boolean
   agentPaused: boolean
+  agentPausedReason?: 'cap' | 'error'
   toolProgressItems: ToolProgressItem[]
   waitingForResponse: boolean
   orIgnoreProviders: string[]
@@ -148,6 +149,7 @@ const initialState: AppState = {
   isCoreBuilding: false,
   buildPaused: false,
   agentPaused: false,
+  agentPausedReason: undefined,
   toolProgressItems: [],
   waitingForResponse: false,
   orIgnoreProviders: [],
@@ -163,7 +165,7 @@ type Action =
   | { type: 'STREAM_END'; thinking?: string }
   | { type: 'STREAM_ERROR'; error: string; requestId?: string; actualModel?: string; chunkCount?: number; elapsedMs?: number; firstChunkMs?: number }
   | { type: 'SET_AGENT_TOOL_ROUNDS'; rounds: number }
-  | { type: 'AGENT_PAUSED' }
+  | { type: 'AGENT_PAUSED'; reason?: 'cap' | 'error' }
   | { type: 'LEDGER_UPDATE'; ledger: SessionCost }
   | { type: 'VAULT_ENTRIES'; entries: VaultEntry[] }
   | { type: 'LICENSE_STATUS'; tier: 'free' | 'pro' }
@@ -425,7 +427,7 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, isCoreBuilding: false, buildPaused: true }
 
     case 'AGENT_PAUSED':
-      return { ...state, streaming: false, waitingForResponse: false, agentPaused: true }
+      return { ...state, streaming: false, waitingForResponse: false, agentPaused: true, agentPausedReason: action.reason }
 
     case 'TOOL_PROGRESS': {
       // Update existing item (same toolName + running→done/error) or append new
@@ -586,7 +588,7 @@ export default function App() {
           dispatch({ type: 'BUILD_PAUSED' })
           break
         case 'agentPaused':
-          dispatch({ type: 'AGENT_PAUSED' })
+          dispatch({ type: 'AGENT_PAUSED', reason: msg.reason })
           break
         case 'streamError':
           dispatch({ type: 'STREAM_ERROR', error: msg.error, requestId: msg.requestId, actualModel: msg.actualModel, chunkCount: msg.chunkCount, elapsedMs: msg.elapsedMs, firstChunkMs: msg.firstChunkMs })
@@ -1114,13 +1116,15 @@ export default function App() {
               )}
               {state.agentPaused && (
                 <div className="core-building-banner core-paused">
-                  Agent paused — round cap reached
+                  {state.agentPausedReason === 'error'
+                    ? 'Agent paused — connection dropped mid-task'
+                    : 'Agent paused — tool round cap reached'}
                   <button
                     className="btn-secondary"
                     style={{ marginLeft: 8, padding: '2px 8px', fontSize: '11px' }}
                     onClick={() => {
                       dispatch({ type: 'WAITING_FOR_RESPONSE' })
-                      postMessage({ type: 'continue' })
+                      postMessage({ type: 'resumeAgent' })
                     }}
                   >
                     Continue

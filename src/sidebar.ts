@@ -49,6 +49,7 @@ type WebviewMessage =
   | { type: 'estimateWorkspaceTokens' }
   | { type: 'continue' }
   | { type: 'resumeBuild' }
+  | { type: 'resumeAgent' }
   | { type: 'setAgentToolRounds'; rounds: number }
 
 // ─── Extension → Webview message types ───────────────────────────────────────
@@ -72,7 +73,7 @@ type ExtensionMessage =
   | { type: 'activeFileChanged'; name: string | null }
   | { type: 'error'; message: string }
   | { type: 'buildPaused' }
-  | { type: 'agentPaused' }
+  | { type: 'agentPaused'; reason?: 'cap' | 'error' }
   // Emitted for each tool call during an agentic loop — drives the real-time
   // "Editing src/foo.ts" progress display in the webview.
   | { type: 'toolProgress'; toolName: string; args: Record<string, unknown>; status: 'running' | 'done' | 'error'; result: string }
@@ -410,6 +411,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         await this.handleContinue()
         break
 
+      case 'resumeAgent':
+        await this.handleResumeAgent()
+        break
+
       case 'estimateWorkspaceTokens': {
         const currentFile = vscode.window.activeTextEditor?.document.uri.fsPath
         const vsConfig = vscode.workspace.getConfiguration('codePirate')
@@ -705,6 +710,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         startMs: Date.now(),
       }
       const roundWatchdog = this.startStreamWatchdog(240_000, rsd)
+      let roundStreamErr: unknown = undefined
       try {
         for await (const event of parseStream(response, config.provider)) {
           if (event.type === 'text') {
@@ -732,8 +738,25 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
             this.post({ type: 'ledgerUpdate', ledger: sessionCost })
           }
         }
+      } catch (err) {
+        roundStreamErr = err
       } finally {
         roundWatchdog.stop()
+      }
+      if (roundStreamErr !== undefined) {
+        if (roundStreamErr instanceof Error && roundStreamErr.name === 'AbortError') {
+          throw roundStreamErr
+        }
+        // Save partial reasoning text so the model knows exactly where it was
+        // when it resumes — prevents it from re-reading all files and restarting.
+        if (fullText) {
+          messages.push({ role: 'assistant', content: fullText + '\n\n[Stream interrupted — resume from here]' })
+        }
+        // Save full accumulated context so resumeAgent can re-enter the loop
+        // with complete tool-call history and no token waste.
+        this.conversationHistory = messages
+        this.post({ type: 'agentPaused', reason: 'error' })
+        return { sentinelSeen }
       }
 
       if (pendingToolCalls.length === 0) {
@@ -777,7 +800,7 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       // Save the full accumulated tool-call history so the next user message
       // resumes seamlessly — the model sees everything it already did.
       this.conversationHistory = messages
-      this.post({ type: 'agentPaused' })
+      this.post({ type: 'agentPaused', reason: 'cap' })
     }
     } finally {
       // Surface a pending-review banner for every file the agent touched.
@@ -932,6 +955,47 @@ Don't worry about framing it perfectly — just tell me what's in your head righ
       thinkingBudget: 'off',
       includeWorkspace: false,
     })
+  }
+
+  // ─── Agent loop resume after cap or stream error ──────────────────────────
+  // Called when the user clicks Continue on the agentPaused banner. Re-enters
+  // runAgentLoop with tools so the model can actually call write_file etc.
+  // Distinct from handleContinue() which is the legacy text-stream path.
+
+  private async handleResumeAgent(): Promise<void> {
+    if (this.streaming) return
+    if (!this.lastCoreSystemPrompt || !this.lastCoreRouterConfig) return
+
+    this.streaming = true
+    this.abortController = new AbortController()
+
+    const messages: ChatMessage[] = [
+      ...this.conversationHistory,
+      { role: 'user', content: 'continue' },
+    ]
+
+    const options: RequestOptions = {
+      messages,
+      systemPrompt: this.lastCoreSystemPrompt,
+      maxTokens: this.lastCoreMaxTokens,
+      thinkingBudget: this.lastCoreThinkingBudget,
+      stream: true,
+      signal: this.abortController.signal,
+    }
+
+    try {
+      await this.runAgentLoop(this.lastCoreRouterConfig, options)
+    } catch (err) {
+      if (!(err instanceof Error && err.name === 'AbortError')) {
+        const raw = err instanceof Error ? err.message : String(err)
+        this.post({ type: 'streamError', error: raw })
+      }
+    } finally {
+      this.streaming = false
+      this.post({ type: 'streamEnd' })
+      const activeDoc = vscode.window.activeTextEditor?.document
+      this.post({ type: 'activeFileChanged', name: activeDoc ? path.basename(activeDoc.fileName) : null })
+    }
   }
 
   // ─── CORE autonomous continuation ─────────────────────────────────────────

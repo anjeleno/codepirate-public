@@ -87,7 +87,7 @@ export type ExtensionMessage =
   | { type: 'activeFileChanged'; name: string | null }
   | { type: 'workspaceTokens'; tokens: number }
   | { type: 'buildPaused' }
-  | { type: 'agentPaused' }
+  | { type: 'agentPaused'; reason?: 'cap' | 'error' }
   | { type: 'error'; message: string }
   // Emitted for each tool call during the agent loop — drives the real-time
   // progress display in the chat ("Editing src/foo.ts…", "Read src/bar.ts")
@@ -103,6 +103,7 @@ export type WebviewMessage =
   | { type: 'setModel'; model: string }
   | { type: 'setOpenRouterProviders'; ignore: string[]; require: string[] }
   | { type: 'setAgentToolRounds'; rounds: number }
+  | { type: 'resumeAgent' }
   | { type: 'cancelStream' }
   | { type: 'previewDiff' }
   | { type: 'applyDiff' }
