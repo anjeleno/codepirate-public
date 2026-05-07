@@ -66,6 +66,11 @@ interface ErrorDebug {
   provider: string
   timestamp: string
   raw: string
+  requestId?: string
+  actualModel?: string
+  chunkCount?: number
+  elapsedMs?: number
+  firstChunkMs?: number
 }
 
 interface AppState {
@@ -97,10 +102,12 @@ interface AppState {
   attachedFiles: Array<{ path: string; name: string }>
   isCoreBuilding: boolean
   buildPaused: boolean
+  agentPaused: boolean
   toolProgressItems: ToolProgressItem[]
   waitingForResponse: boolean
   orIgnoreProviders: string[]
   orRequireProviders: string[]
+  agentToolRounds: number
 }
 
 const emptyLedger: SessionCost = {
@@ -140,10 +147,12 @@ const initialState: AppState = {
   attachedFiles: [],
   isCoreBuilding: false,
   buildPaused: false,
+  agentPaused: false,
   toolProgressItems: [],
   waitingForResponse: false,
   orIgnoreProviders: [],
   orRequireProviders: [],
+  agentToolRounds: 20,
 }
 
 type Action =
@@ -152,7 +161,9 @@ type Action =
   | { type: 'STREAM_CHUNK'; text: string }
   | { type: 'THINKING_CHUNK'; text: string }
   | { type: 'STREAM_END'; thinking?: string }
-  | { type: 'STREAM_ERROR'; error: string }
+  | { type: 'STREAM_ERROR'; error: string; requestId?: string; actualModel?: string; chunkCount?: number; elapsedMs?: number; firstChunkMs?: number }
+  | { type: 'SET_AGENT_TOOL_ROUNDS'; rounds: number }
+  | { type: 'AGENT_PAUSED' }
   | { type: 'LEDGER_UPDATE'; ledger: SessionCost }
   | { type: 'VAULT_ENTRIES'; entries: VaultEntry[] }
   | { type: 'LICENSE_STATUS'; tier: 'free' | 'pro' }
@@ -204,11 +215,15 @@ function reducer(state: AppState, action: Action): AppState {
         waitingForResponse: s.streaming ? true : state.waitingForResponse,
         orIgnoreProviders: s.openrouterIgnoreProviders ?? [],
         orRequireProviders: s.openrouterRequireProviders ?? [],
+        agentToolRounds: s.agentToolRounds ?? 20,
       }
     }
 
+    case 'SET_AGENT_TOOL_ROUNDS':
+      return { ...state, agentToolRounds: action.rounds }
+
     case 'WAITING_FOR_RESPONSE':
-      return { ...state, waitingForResponse: true }
+      return { ...state, waitingForResponse: true, agentPaused: false }
 
     case 'STREAM_CHUNK':
       return { ...state, streaming: true, waitingForResponse: false, streamingText: state.streamingText + action.text }
@@ -238,21 +253,53 @@ function reducer(state: AppState, action: Action): AppState {
       }
     }
 
-    case 'STREAM_ERROR':
+    case 'STREAM_ERROR': {
+      // If the stream produced any partial content before stalling, commit it to
+      // messages so it survives and the user can reference what the model had said.
+      const partialMessages = state.streamingText
+        ? [
+            ...state.messages,
+            {
+              id: Date.now().toString(),
+              role: 'assistant' as const,
+              content: state.streamingText + '\n\n*⚠ Response cut off — stream dropped before completion.*',
+              thinking: state.streamingThinking || undefined,
+              timestamp: Date.now(),
+            },
+          ]
+        : state.messages
+      // Auto-save to History so the conversation is never silently lost on error.
+      // Only save if there are messages worth keeping.
+      let savedSessions = state.savedSessions
+      if (partialMessages.length > 0) {
+        const firstUser = partialMessages.find(m => m.role === 'user')
+        const title = (firstUser ? firstUser.content.slice(0, 60) : 'Chat') + ' ⚠'
+        const session: SavedSession = { id: Date.now().toString(), title, messages: partialMessages, savedAt: Date.now() }
+        savedSessions = [session, ...state.savedSessions].slice(0, 50)
+        try { localStorage.setItem(SESSIONS_KEY, JSON.stringify(savedSessions)) } catch { /* ignore */ }
+      }
       return {
         ...state,
         streaming: false,
         waitingForResponse: false,
         streamingText: '',
         streamingThinking: '',
+        messages: partialMessages,
+        savedSessions,
         error: action.error,
         errorDebug: {
           raw: action.error,
           model: state.model,
           provider: state.provider,
           timestamp: new Date().toISOString(),
+          requestId: action.requestId,
+          actualModel: action.actualModel,
+          chunkCount: action.chunkCount,
+          elapsedMs: action.elapsedMs,
+          firstChunkMs: action.firstChunkMs,
         },
       }
+    }
 
     case 'LEDGER_UPDATE':
       return { ...state, ledger: action.ledger }
@@ -314,7 +361,7 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'CLEAR_HISTORY':
       try { localStorage.removeItem(CURRENT_SESSION_KEY) } catch { /* ignore */ }
-      return { ...state, messages: [], ledger: emptyLedger, pendingDiff: null, isCoreBuilding: false, buildPaused: false }
+      return { ...state, messages: [], ledger: emptyLedger, pendingDiff: null, isCoreBuilding: false, buildPaused: false, agentPaused: false }
 
     case 'CREDIT_BALANCE':
       return { ...state, creditBalance: action.balance }
@@ -376,6 +423,9 @@ function reducer(state: AppState, action: Action): AppState {
 
     case 'BUILD_PAUSED':
       return { ...state, isCoreBuilding: false, buildPaused: true }
+
+    case 'AGENT_PAUSED':
+      return { ...state, streaming: false, waitingForResponse: false, agentPaused: true }
 
     case 'TOOL_PROGRESS': {
       // Update existing item (same toolName + running→done/error) or append new
@@ -535,8 +585,11 @@ export default function App() {
         case 'buildPaused':
           dispatch({ type: 'BUILD_PAUSED' })
           break
+        case 'agentPaused':
+          dispatch({ type: 'AGENT_PAUSED' })
+          break
         case 'streamError':
-          dispatch({ type: 'STREAM_ERROR', error: msg.error })
+          dispatch({ type: 'STREAM_ERROR', error: msg.error, requestId: msg.requestId, actualModel: msg.actualModel, chunkCount: msg.chunkCount, elapsedMs: msg.elapsedMs, firstChunkMs: msg.firstChunkMs })
           break
         case 'ledgerUpdate':
           dispatch({ type: 'LEDGER_UPDATE', ledger: msg.ledger })
@@ -1059,6 +1112,21 @@ export default function App() {
                   </button>
                 </div>
               )}
+              {state.agentPaused && (
+                <div className="core-building-banner core-paused">
+                  Agent paused — round cap reached
+                  <button
+                    className="btn-secondary"
+                    style={{ marginLeft: 8, padding: '2px 8px', fontSize: '11px' }}
+                    onClick={() => {
+                      dispatch({ type: 'WAITING_FOR_RESPONSE' })
+                      postMessage({ type: 'continue' })
+                    }}
+                  >
+                    Continue
+                  </button>
+                </div>
+              )}
               {estimatedCost && (
                 <div className="cost-estimate">{estimatedCost}</div>
               )}
@@ -1091,6 +1159,7 @@ export default function App() {
             inputRef={inputRef}
             orIgnoreProviders={state.orIgnoreProviders}
             orRequireProviders={state.orRequireProviders}
+            agentToolRounds={state.agentToolRounds}
           />
         )}
 
@@ -1140,13 +1209,15 @@ interface SettingsViewProps {
   inputRef: React.RefObject<HTMLInputElement>
   orIgnoreProviders: string[]
   orRequireProviders: string[]
+  agentToolRounds: number
 }
 
-function SettingsView({ hasApiKey, tier, onApiKeySubmit, inputRef, orIgnoreProviders, orRequireProviders }: SettingsViewProps) {
+function SettingsView({ hasApiKey, tier, onApiKeySubmit, inputRef, orIgnoreProviders, orRequireProviders, agentToolRounds }: SettingsViewProps) {
   const [apiKeyInput, setApiKeyInput] = React.useState('')
   const [licenseInput, setLicenseInput] = React.useState('')
   const [orIgnoreInput, setOrIgnoreInput] = React.useState(orIgnoreProviders.join(', '))
   const [orRequireInput, setOrRequireInput] = React.useState(orRequireProviders.join(', '))
+  const [roundsInput, setRoundsInput] = React.useState(String(agentToolRounds))
 
   function parseProviderList(raw: string): string[] {
     return raw.split(',').map(s => s.trim()).filter(Boolean)
@@ -1158,6 +1229,13 @@ function SettingsView({ hasApiKey, tier, onApiKeySubmit, inputRef, orIgnoreProvi
       ignore: parseProviderList(orIgnoreInput),
       require: parseProviderList(orRequireInput),
     })
+  }
+
+  function handleSaveRounds() {
+    const n = parseInt(roundsInput, 10)
+    const rounds = isNaN(n) || n < 0 ? 20 : n
+    postMessage({ type: 'setAgentToolRounds', rounds })
+    setRoundsInput(String(rounds))
   }
 
   return (
@@ -1252,6 +1330,23 @@ function SettingsView({ hasApiKey, tier, onApiKeySubmit, inputRef, orIgnoreProvi
       </div>
 
       <div className="settings-group">
+        <div className="settings-label">Agent Tool Rounds</div>
+        <div style={{ fontSize: 11, opacity: 0.6, marginBottom: 4 }}>
+          Max tool-call rounds the CORE agent may run before stopping. Set to <strong>0</strong> to remove the cap. Default: 20.
+        </div>
+        <input
+          type="number"
+          min={0}
+          value={roundsInput}
+          onChange={e => setRoundsInput(e.target.value)}
+          style={{ width: 80, marginBottom: 6 }}
+        />
+        <button className="btn-primary" onClick={handleSaveRounds}>
+          Save
+        </button>
+      </div>
+
+      <div className="settings-group">
         <div className="settings-label">Getting Started</div>
         <div style={{ fontSize: 11, lineHeight: 1.6, opacity: 0.8 }}>
           1. Get an API key from OpenRouter (openrouter.ai) or Anthropic (console.anthropic.com)<br />
@@ -1280,9 +1375,20 @@ function ErrorBar({ error, debug, onDismiss }: ErrorBarProps) {
     ? [
         'Code Pirate — Error Report',
         '===========================',
-        `Timestamp : ${debug.timestamp}`,
-        `Model     : ${debug.model}`,
-        `Provider  : ${debug.provider}`,
+        `Timestamp    : ${debug.timestamp}`,
+        `Model        : ${debug.model}`,
+        ...(debug.actualModel && debug.actualModel !== debug.model
+          ? [`Actual model : ${debug.actualModel}`]
+          : []),
+        `Provider     : ${debug.provider}`,
+        ...(debug.requestId ? [`Request ID   : ${debug.requestId}`] : []),
+        ...(debug.chunkCount !== undefined
+          ? [
+              `Chunks       : ${debug.chunkCount}`,
+              `Elapsed      : ${(debug.elapsedMs! / 1000).toFixed(1)}s`,
+              `First chunk  : ${debug.firstChunkMs !== undefined ? `${(debug.firstChunkMs / 1000).toFixed(1)}s` : '—'}`,
+            ]
+          : []),
         '',
         'Error',
         '-----',

@@ -49,6 +49,7 @@ type WebviewMessage =
   | { type: 'estimateWorkspaceTokens' }
   | { type: 'continue' }
   | { type: 'resumeBuild' }
+  | { type: 'setAgentToolRounds'; rounds: number }
 
 // ─── Extension → Webview message types ───────────────────────────────────────
 
@@ -57,7 +58,7 @@ type ExtensionMessage =
   | { type: 'streamChunk'; text: string }
   | { type: 'thinkingChunk'; text: string }
   | { type: 'streamEnd'; thinking?: string }
-  | { type: 'streamError'; error: string }
+  | { type: 'streamError'; error: string; requestId?: string; actualModel?: string; chunkCount?: number; elapsedMs?: number; firstChunkMs?: number }
   | { type: 'ledgerUpdate'; ledger: SessionCost }
   | { type: 'vaultEntries'; entries: VaultEntry[] }
   | { type: 'licenseStatus'; tier: 'free' | 'pro'; expiresAt?: string }
@@ -71,6 +72,7 @@ type ExtensionMessage =
   | { type: 'activeFileChanged'; name: string | null }
   | { type: 'error'; message: string }
   | { type: 'buildPaused' }
+  | { type: 'agentPaused' }
   // Emitted for each tool call during an agentic loop — drives the real-time
   // "Editing src/foo.ts" progress display in the webview.
   | { type: 'toolProgress'; toolName: string; args: Record<string, unknown>; status: 'running' | 'done' | 'error'; result: string }
@@ -92,6 +94,10 @@ interface InitialState {
   ledger: SessionCost
   vaultEntries: VaultEntry[]
   providers: Array<{ id: Provider; label: string; isLocal: boolean }>
+  agentToolRounds: number
+  streaming?: boolean
+  openrouterIgnoreProviders: string[]
+  openrouterRequireProviders: string[]
 }
 
 // ─── Debug file logger ────────────────────────────────────────────────────────
@@ -110,6 +116,17 @@ function dbg(msg: string): void {
     if (stat && stat.size > 100_000) fs.writeFileSync(DEBUG_LOG, line) // rotate
     else fs.appendFileSync(DEBUG_LOG, line)
   } catch { /* never throw from a debug helper */ }
+}
+
+// ─── Stream diagnostics ───────────────────────────────────────────────────────
+// Mutable object created per-request, mutated as chunks arrive, and read by the
+// watchdog on timeout to include triage data in the error report.
+interface StreamDebug {
+  requestId?: string    // OpenRouter x-request-id response header
+  actualModel?: string  // OpenRouter x-model response header (resolved model)
+  chunkCount: number    // total data chunks received before stall
+  startMs: number       // Date.now() when the HTTP response was received
+  firstChunkMs?: number // ms from startMs to the first data chunk
 }
 
 // ─── Sidebar WebviewViewProvider ─────────────────────────────────────────────
@@ -280,6 +297,13 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
         const cfg = vscode.workspace.getConfiguration()
         await cfg.update('codePirate.openrouterIgnoreProviders', msg.ignore, vscode.ConfigurationTarget.Global)
         await cfg.update('codePirate.openrouterRequireProviders', msg.require, vscode.ConfigurationTarget.Global)
+        break
+      }
+
+      case 'setAgentToolRounds': {
+        await vscode.workspace
+          .getConfiguration()
+          .update('codePirate.agentToolRounds', msg.rounds, vscode.ConfigurationTarget.Global)
         break
       }
 
@@ -544,21 +568,32 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       const response = await routeRequest(config, options)
       dbg(`OR response: status=${response.status} x-model=${response.headers.get('x-model') ?? 'n/a'} x-request-id=${response.headers.get('x-request-id') ?? 'n/a'}`)
 
-      const watchdog = this.startStreamWatchdog()
+      const sd: StreamDebug = {
+        requestId: response.headers.get('x-request-id') ?? undefined,
+        actualModel: response.headers.get('x-model') ?? undefined,
+        chunkCount: 0,
+        startMs: Date.now(),
+      }
+      const watchdog = this.startStreamWatchdog(240_000, sd)
       try {
         for await (const event of parseStream(response, config.provider)) {
           if (event.type === 'text') {
             watchdog.bump()
+            if (!sd.firstChunkMs) sd.firstChunkMs = Date.now() - sd.startMs
+            sd.chunkCount++
             fullResponse += event.chunk
             this.post({ type: 'streamChunk', text: event.chunk })
           } else if (event.type === 'thinking') {
             watchdog.bump()
+            if (!sd.firstChunkMs) sd.firstChunkMs = Date.now() - sd.startMs
+            sd.chunkCount++
             fullThinking += event.chunk
             this.post({ type: 'thinkingChunk', text: event.chunk })
           } else if (event.type === 'model') {
             dbg(`OR actual model used: ${event.id}`)
           } else if (event.type === 'usage' && !isLocal(config.provider)) {
             watchdog.bump()
+            sd.chunkCount++
             const sessionCost = this.ledger.record(event.usage, model)
             this.post({ type: 'ledgerUpdate', ledger: sessionCost })
           }
@@ -623,7 +658,8 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     config: RouterConfig,
     baseOptions: RequestOptions,
   ): Promise<{ sentinelSeen: boolean }> {
-    const MAX_TOOL_ROUNDS = 20
+    const configuredRounds = vscode.workspace.getConfiguration('codePirate').get<number>('agentToolRounds') ?? 20
+    const MAX_TOOL_ROUNDS = configuredRounds === 0 ? Infinity : configuredRounds
     // One snapshot per file per agent run — preserves the pre-AI original
     const snapshotted = new Set<string>()
     const messages = [...baseOptions.messages]
@@ -662,24 +698,36 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
       let fullText = ''
       const pendingToolCalls: ToolCall[] = []
 
-      const roundWatchdog = this.startStreamWatchdog()
+      const rsd: StreamDebug = {
+        requestId: response.headers.get('x-request-id') ?? undefined,
+        actualModel: response.headers.get('x-model') ?? undefined,
+        chunkCount: 0,
+        startMs: Date.now(),
+      }
+      const roundWatchdog = this.startStreamWatchdog(240_000, rsd)
       try {
         for await (const event of parseStream(response, config.provider)) {
           if (event.type === 'text') {
             roundWatchdog.bump()
+            if (!rsd.firstChunkMs) rsd.firstChunkMs = Date.now() - rsd.startMs
+            rsd.chunkCount++
             fullText += event.chunk
             this.post({ type: 'streamChunk', text: event.chunk })
           } else if (event.type === 'thinking') {
             roundWatchdog.bump()
+            if (!rsd.firstChunkMs) rsd.firstChunkMs = Date.now() - rsd.startMs
+            rsd.chunkCount++
             this.post({ type: 'thinkingChunk', text: event.chunk })
           } else if (event.type === 'model') {
             dbg(`agent loop actual model: ${event.id}`)
           } else if (event.type === 'tool_call') {
             roundWatchdog.bump()
+            rsd.chunkCount++
             pendingToolCalls.push(event.call)
             this.post({ type: 'toolProgress', toolName: event.call.name, args: event.call.args, status: 'running', result: '' })
           } else if (event.type === 'usage' && !isLocal(config.provider)) {
             roundWatchdog.bump()
+            rsd.chunkCount++
             const sessionCost = this.ledger.record(event.usage, config.model)
             this.post({ type: 'ledgerUpdate', ledger: sessionCost })
           }
@@ -726,10 +774,10 @@ export class SidebarProvider implements vscode.WebviewViewProvider {
     }
 
     if (round >= MAX_TOOL_ROUNDS) {
-      this.post({
-        type: 'streamError',
-        error: 'Agent safety cap reached (20 tool rounds). The task may be incomplete — review what was done and continue manually if needed.',
-      })
+      // Save the full accumulated tool-call history so the next user message
+      // resumes seamlessly — the model sees everything it already did.
+      this.conversationHistory = messages
+      this.post({ type: 'agentPaused' })
     }
     } finally {
       // Surface a pending-review banner for every file the agent touched.
@@ -929,19 +977,30 @@ Don't worry about framing it perfectly — just tell me what's in your head righ
 
       const response = await routeRequest(this.lastCoreRouterConfig, options)
 
-      const contWatchdog = this.startStreamWatchdog()
+      const csd: StreamDebug = {
+        requestId: response.headers.get('x-request-id') ?? undefined,
+        actualModel: response.headers.get('x-model') ?? undefined,
+        chunkCount: 0,
+        startMs: Date.now(),
+      }
+      const contWatchdog = this.startStreamWatchdog(240_000, csd)
       try {
         for await (const event of parseStream(response, this.lastCoreRouterConfig.provider)) {
           if (event.type === 'text') {
             contWatchdog.bump()
+            if (!csd.firstChunkMs) csd.firstChunkMs = Date.now() - csd.startMs
+            csd.chunkCount++
             fullResponse += event.chunk
             this.post({ type: 'streamChunk', text: event.chunk })
           } else if (event.type === 'thinking') {
             contWatchdog.bump()
+            if (!csd.firstChunkMs) csd.firstChunkMs = Date.now() - csd.startMs
+            csd.chunkCount++
             fullThinking += event.chunk
             this.post({ type: 'thinkingChunk', text: event.chunk })
           } else if (event.type === 'usage' && !isLocal(this.lastCoreRouterConfig.provider)) {
             contWatchdog.bump()
+            csd.chunkCount++
             const sessionCost = this.ledger.record(event.usage, this.lastCoreRouterConfig.model)
             this.post({ type: 'ledgerUpdate', ledger: sessionCost })
           }
@@ -979,15 +1038,24 @@ Don't worry about framing it perfectly — just tell me what's in your head righ
   // timeoutMs, the AbortController is fired and a visible error is posted so the
   // user knows the provider dropped the connection silently rather than waiting
   // indefinitely with no feedback.
-  private startStreamWatchdog(timeoutMs = 180_000): { bump: () => void; stop: () => void } {
+  //
+  // Pass a StreamDebug ref (mutated by the caller as chunks arrive) to enrich
+  // the error report with chunk count, timing, and OpenRouter request metadata.
+  private startStreamWatchdog(timeoutMs = 240_000, debugRef?: StreamDebug): { bump: () => void; stop: () => void } {
     let timer: ReturnType<typeof setTimeout> | undefined
     const bump = () => {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
         this.abortController?.abort()
+        const elapsedMs = debugRef ? Date.now() - debugRef.startMs : timeoutMs
         this.post({
           type: 'streamError',
           error: `Stream stalled — no data from provider for ${Math.round(timeoutMs / 1000)}s. The provider likely dropped the connection silently. Try again; if it keeps happening, switch to a different model or provider.`,
+          requestId: debugRef?.requestId,
+          actualModel: debugRef?.actualModel,
+          chunkCount: debugRef?.chunkCount ?? 0,
+          elapsedMs,
+          firstChunkMs: debugRef?.firstChunkMs,
         })
       }, timeoutMs)
     }
@@ -1021,6 +1089,7 @@ Don't worry about framing it perfectly — just tell me what's in your head righ
         streaming: this.streaming,  // preserve in-progress state if webview reloads mid-stream
         openrouterIgnoreProviders: config.get<string[]>('openrouterIgnoreProviders') ?? [],
         openrouterRequireProviders: config.get<string[]>('openrouterRequireProviders') ?? [],
+        agentToolRounds: config.get<number>('agentToolRounds') ?? 20,
       },
     })
     this._initialized = true

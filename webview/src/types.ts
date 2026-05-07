@@ -66,6 +66,7 @@ export interface InitialState {
   streaming?: boolean
   openrouterIgnoreProviders: string[]
   openrouterRequireProviders: string[]
+  agentToolRounds: number
 }
 
 export type ExtensionMessage =
@@ -73,7 +74,7 @@ export type ExtensionMessage =
   | { type: 'streamChunk'; text: string }
   | { type: 'thinkingChunk'; text: string }
   | { type: 'streamEnd'; thinking?: string }
-  | { type: 'streamError'; error: string }
+  | { type: 'streamError'; error: string; requestId?: string; actualModel?: string; chunkCount?: number; elapsedMs?: number; firstChunkMs?: number }
   | { type: 'ledgerUpdate'; ledger: SessionCost }
   | { type: 'vaultEntries'; entries: VaultEntry[] }
   | { type: 'licenseStatus'; tier: 'free' | 'pro'; expiresAt?: string }
@@ -86,6 +87,7 @@ export type ExtensionMessage =
   | { type: 'activeFileChanged'; name: string | null }
   | { type: 'workspaceTokens'; tokens: number }
   | { type: 'buildPaused' }
+  | { type: 'agentPaused' }
   | { type: 'error'; message: string }
   // Emitted for each tool call during the agent loop — drives the real-time
   // progress display in the chat ("Editing src/foo.ts…", "Read src/bar.ts")
@@ -100,6 +102,7 @@ export type WebviewMessage =
   | { type: 'setProvider'; provider: Provider }
   | { type: 'setModel'; model: string }
   | { type: 'setOpenRouterProviders'; ignore: string[]; require: string[] }
+  | { type: 'setAgentToolRounds'; rounds: number }
   | { type: 'cancelStream' }
   | { type: 'previewDiff' }
   | { type: 'applyDiff' }

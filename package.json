@@ -2,7 +2,7 @@
   "name": "code-pirate",
   "displayName": "Code Pirate",
   "description": "A 1:1 GitHub Copilot replacement built for developers who are done being held hostage and gaslit by SaaS bait-and-switches.",
-  "version": "0.1.48",
+  "version": "0.1.50",
   "icon": "media/logo.png",
   "galleryBanner": {
     "color": "#0a0a0a",
@@ -224,6 +224,11 @@
           },
           "default": [],
           "description": "Force OpenRouter to use only these sub-providers (in order). Example: [\"DeepInfra\", \"Together\"] to prefer specific providers. Leave empty to let OpenRouter route automatically."
+        },
+        "codePirate.agentToolRounds": {
+          "type": "number",
+          "default": 20,
+          "description": "Maximum number of tool-call rounds the CORE agent may execute before stopping. Increase for large tasks; set to 0 to remove the cap entirely. Default: 20."
         }
       }
     }

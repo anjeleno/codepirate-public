@@ -2,8 +2,36 @@
 
 All notable changes are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-<!-- LAST_PACKAGED_COMMIT: 99ddf71b081dda476443a36269b6029dc7255fa6 -->
+<!-- LAST_PACKAGED_COMMIT: 10e9dfaada892181c8d04fbec5d0396d54f1129d -->
 <!-- CHANGES -->
+
+## [0.1.50] - 2026-05-07
+
+### Added
+- `codePirate.agentToolRounds` VS Code setting (default 20, set to 0 for no cap) — configures the CORE agent loop round limit without touching code
+- **Agent Tool Rounds** control in the Settings tab: number input + Save button, pre-filled from saved config
+- `agentPaused` extension→webview message and `AGENT_PAUSED` reducer action
+- **Agent paused — round cap reached** banner with a one-click **Continue** button: appears in place of the old error bar when the round cap fires; clicking Continue resumes the agent from exactly where it stopped with no token waste
+- When the cap fires, full accumulated tool-call history (every assistant turn, tool call, and result from the entire agent run) is saved back to `conversationHistory` so the model has complete context on resume
+
+### Fixed
+- Agent round cap no longer posts a `streamError` and strands the user — it now pauses cleanly and offers a Continue button
+- Setting `agentToolRounds` to 0 removes the cap entirely for large tasks
+
+---
+
+## [0.1.49] - 2026-05-07
+
+### Added
+- Stream stall watchdog timeout increased from 180 s to 240 s across all stream paths
+- `StreamDebug` diagnostics captured per-request: OpenRouter `x-request-id`, resolved model (`x-model`), chunk count, total elapsed ms, and time-to-first-chunk
+- Enriched "Under the Hood" error report now shows Request ID, Actual model, Chunks received, Elapsed, and First chunk timing — enough to distinguish a silent 0-chunk drop from a mid-stream disconnect
+- Stream error auto-saves the current conversation to History with a `⚠`-suffix title so broken sessions are always recoverable from the History tab
+
+### Fixed
+- Partial model responses no longer disappear on stream error — any accumulated text is committed to chat history as a cut-off assistant message before the error state is set
+
+---
 
 ## [0.1.48] - 2026-05-06
 
@@ -12,16 +40,6 @@ All notable changes are documented here. Format follows [Keep a Changelog](https
 
 ### Fixed
 - Planner auto-transition bug: DeepSeek would refuse to write code after blueprint synthesis and demand a manual "mode switch." Conversation history is now cleared on synthesis completion so CORE starts with a clean context.
-
----
-
-## [0.1.45] - 2026-05-05
-
-### Added
-- V0.1.44
-
-### Changed
-- Active-model float in Default sort, ✕/↺ model micro-buttons, header commands palette button
 
 ---
 
